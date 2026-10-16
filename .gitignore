@@ -1,0 +1,18 @@
+# Ambientes virtuais e caches
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Credenciais e Segredos (NUNCA versionar)
+credentials.json
+token.json
+*.pem
+.env
+.env.*
+
+# Bancos de dados e logs locais
+*.db
+*.sqlite3
+*.log
