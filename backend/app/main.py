@@ -5,10 +5,14 @@ from datetime import datetime, date, time, timedelta, timezone, tzinfo
 from typing import Optional, List, Dict, Any, AsyncGenerator
 from zoneinfo import ZoneInfo
 
+from pathlib import Path
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
 from backend.app.api.endpoints import router as api_router
@@ -264,6 +268,33 @@ app = FastAPI(
 
 # Injeção das rotas REST
 app.include_router(api_router)
+
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+# Montagem dos arquivos estáticos PWA
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+@app.get("/", summary="Interface Web PWA", response_class=FileResponse)
+async def serve_index() -> FileResponse:
+    """Serve o App Shell do Progressive Web App."""
+    return FileResponse(str(STATIC_DIR / "index.html"), media_type="text/html")
+
+
+@app.get("/manifest.json", summary="Manifesto PWA", response_class=FileResponse)
+async def serve_manifest() -> FileResponse:
+    """Serve o arquivo de manifesto W3C do PWA."""
+    return FileResponse(str(STATIC_DIR / "manifest.json"), media_type="application/manifest+json")
+
+
+@app.get("/service-worker.js", summary="Service Worker PWA", response_class=FileResponse)
+async def serve_service_worker() -> FileResponse:
+    """Serve o Service Worker com escopo raiz permitido."""
+    return FileResponse(
+        str(STATIC_DIR / "service-worker.js"),
+        media_type="application/javascript",
+        headers={"Service-Worker-Allowed": "/"},
+    )
 
 
 @app.get("/health", summary="Verificação de integridade do microsserviço")

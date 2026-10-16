@@ -264,6 +264,7 @@ def get_daily_dashboard(
                 page_count=m.page_count if m else 0,
                 status=t.status,
                 group_required=t.group_required,
+                drive_url=f"https://drive.google.com/open?id={m.id}" if m and m.id else None,
             )
         )
 

@@ -89,6 +89,32 @@ flowchart TD
   - `GET /api/dashboard/daily`: Retorna payload estruturado completo (`classes_and_allocations`, `reading_queue` ordenada e `domestic_routines` com flag `is_completed_today`).
   - `GET /health`: Healthcheck do microsserviço informando integridade e estado do agendador.
 
+### Painel Visual Responsivo em Progressive Web App (Fase 4 — SPEC-004)
+
+- **Entrega de Arquivos Estáticos & PWA no FastAPI (`backend/app/main.py`):**
+  - Servimento do App Shell diretamente em `GET /` (`FileResponse` de `static/index.html`).
+  - Rota de escopo raiz para o Service Worker (`GET /service-worker.js`) com o cabeçalho `Service-Worker-Allowed: /`.
+  - Manifesto W3C servido em `GET /manifest.json` com `media_type="application/manifest+json"`.
+  - Montagem de ativos estáticos, fontes e ícones em `/static` (`StaticFiles`).
+- **Interface Mobile-First & Vanilla ES6+ (`backend/app/static/`):**
+  - Interface moderna desenvolvida sem bundlers complexos (zero Node/Vite/Webpack), estilizada com Tailwind CSS em paleta dark slate com suporte a safe areas de dispositivos móveis.
+  - Alvos táteis com altura e largura mínimas de 44x44px.
+  - **Três Seções Principais Integradas:**
+    1. **Grelha de Aulas e Blocos de Estudo (`#daily-schedule-section`):** Visualização cronológica do dia com badges de disciplina e horários de início e término.
+    2. **Fila Ordenada de Leitura (`#reading-queue-section`):** Cards por prazo com contagem regressiva de páginas, cálculo estimado de tempo em minutos, destaque para trabalho em grupo (`group_required`) e botões de ação imediata: **Concluir**, **Adiar 1h** e **Abrir PDF**.
+    3. **Manutenção Doméstica & Rotinas (`#domestic-routines-section`):** Exibição de periodicidade cron, status de conclusão diária e botão de validação tátil.
+- **Estratégias Avançadas do Service Worker (`service-worker.js`):**
+  - **Stale-While-Revalidate:** Aplicado a ativos estáticos e navegação do App Shell, entregando o cache instantaneamente e atualizando os recursos em background.
+  - **Network-First:** Aplicado à consulta de dados em tempo real (`GET /api/dashboard/daily`), com fallback resiliente para o cache local offline quando o dispositivo perde a rede.
+  - **Network Pass-Through:** Mutações `POST /api/...` trafegam direto pela rede sem retenção ou inconsistência de cache.
+- **Mutações Otimistas (Optimistic UI Updates) & Rollback (`app.js`):**
+  - Transições visuais e contadores recalculados instantaneamente no DOM ao interagir com **Concluir** ou **Adiar 1h**.
+  - Mecanismo de **Snapshot e Rollback**: em caso de falha de rede ou rejeição pelo servidor (`409 Conflict`), o elemento retorna ao estado original e um toast contextual é exibido.
+- **Como Acessar e Instalar (Add to Home Screen - A2HS):**
+  - Abra o navegador do smartphone e navegue para a URL da aplicação (ex: `http://localhost:8000/` ou IP do servidor).
+  - **Android (Chrome):** O navegador exibirá a opção de instalar ou no menu de 3 pontos selecione "Adicionar à tela inicial" / "Instalar aplicativo".
+  - **iOS (Safari):** Toque no botão de compartilhamento e selecione "Adicionar à Tela de Início". O app iniciará em modo tela cheia (`display: standalone`).
+
 ---
 
 ## 🗄️ 3. Esquema das Tabelas do Banco de Dados
@@ -164,16 +190,17 @@ TIMEZONE="America/Sao_Paulo"
 A suíte de testes utiliza banco SQLite em memória (`sqlite:///:memory:` com `StaticPool`) e mocks completos das chamadas de rede da Google API (Classroom, Drive, Calendar), Gemini e ntfy:
 
 ```bash
-# Executa todos os testes do projeto (SPEC-001, SPEC-002 e SPEC-003)
+# Executa todos os testes do projeto (SPEC-001, SPEC-002, SPEC-003 e SPEC-004)
 /root/.venv/bin/pytest -v tests/
 
 # Execução individual por especificação
 /root/.venv/bin/pytest -v tests/test_ingestion_and_analyzer.py
 /root/.venv/bin/pytest -v tests/test_scheduler_engine.py
 /root/.venv/bin/pytest -v tests/test_api_and_notifier.py
+/root/.venv/bin/pytest -v tests/test_pwa_static.py
 ```
 
-### Cobertura da Suíte de Testes (26 Testes de Integração)
+### Cobertura da Suíte de Testes (30 Testes de Integração e UI)
 
 #### Ingestão e Análise Semântica (SPEC-001):
 1. `test_schema_table_creation`: Garante a criação de todas as 5 tabelas e colunas no SQLAlchemy 2.0.
@@ -206,4 +233,10 @@ A suíte de testes utiliza banco SQLite em memória (`sqlite:///:memory:` com `S
 24. `test_notifier_exhausted_retries_resilience`: Resiliência contra quedas permanentes sem quebra de fluxo na aplicação.
 25. `test_healthcheck_endpoint`: Verificação de integridade e telemetria dos jobs do agendador em `GET /health`.
 26. `test_lifespan_initialization_and_shutdown`: Inicialização do SQLite, registro de jobs no `AsyncIOScheduler` e drenagem limpa no encerramento.
+
+#### Painel Visual PWA e Ativos Estáticos (SPEC-004):
+27. `test_root_index_html_delivery`: Entrega de `index.html` em `GET /` com links de PWA e os 3 containers estruturais de seções.
+28. `test_manifest_json_specification`: Conformidade com o padrão W3C Web App Manifest (`standalone`, escopo raiz e múltiplos ícones maskable).
+29. `test_service_worker_delivery_and_headers`: Entrega de `service-worker.js` com cabeçalho `Service-Worker-Allowed: /` e lógica de cache híbrido.
+30. `test_static_files_mount_and_app_js`: Acesso direto aos ativos estáticos montados (`/static/app.js`, `/static/icons/`) e integridade dos handlers JavaScript.
 

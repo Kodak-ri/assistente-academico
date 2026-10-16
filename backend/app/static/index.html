@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>AcadAgent — Assistente Académico & Agendamento Preditivo</title>
+  
+  <!-- PWA Meta Tags -->
+  <meta name="theme-color" content="#0f172a">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="AcadAgent">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/svg+xml" href="/static/icons/icon.svg">
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            slate: {
+              850: '#151f32',
+              900: '#0f172a',
+              950: '#020617',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Fallback Styles for Offline Resilience & Mobile Polish -->
+  <style>
+    body {
+      background-color: #0f172a;
+      color: #f8fafc;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .safe-top {
+      padding-top: env(safe-area-inset-top, 0.75rem);
+    }
+    .safe-bottom {
+      padding-bottom: env(safe-area-inset-bottom, 1rem);
+    }
+    .touch-target {
+      min-height: 44px;
+      min-width: 44px;
+    }
+    .transition-card {
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .task-completed-anim {
+      opacity: 0.4;
+      transform: scale(0.98);
+      filter: grayscale(80%);
+    }
+  </style>
+
+  <!-- Modular Vanilla JavaScript Application -->
+  <script src="/static/app.js" defer></script>
+</head>
+
+<body class="min-h-screen bg-slate-900 text-slate-100 flex flex-col antialiased selection:bg-blue-600 selection:text-white">
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="fixed top-4 right-4 left-4 sm:left-auto sm:w-96 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <!-- Header de Status e Carga Diária -->
+  <header class="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 safe-top px-4 py-3 shadow-lg">
+    <div class="max-w-2xl mx-auto flex items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center shadow-md shadow-blue-500/20">
+          <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 14l9-5-9-5-9 5 9 5z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 14l6.16-3.422a12.083 12.083 0 01.665 6.479A11.952 11.952 0 0012 20.055a11.952 11.952 0 00-6.824-2.998 12.078 12.078 0 01.665-6.479L12 14z"/>
+          </svg>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="font-bold text-base tracking-tight text-white">AcadAgent</h1>
+            <span id="connection-status" class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-950 text-emerald-400 border border-emerald-800/80">
+              <span class="w-1.5 h-1.5 mr-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              Online
+            </span>
+          </div>
+          <p id="current-date" class="text-xs text-slate-400 font-medium tracking-wide">Carregando jornada...</p>
+        </div>
+      </div>
+
+      <!-- Ações do Cabeçalho -->
+      <div class="flex items-center gap-2">
+        <button id="btn-refresh" class="touch-target p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 hover:text-white transition border border-slate-700 shadow-sm" title="Recarregar dados">
+          <svg id="refresh-icon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Barra de Métricas de Carga Diária -->
+    <div class="max-w-2xl mx-auto mt-3 pt-3 border-t border-slate-800/80 grid grid-cols-3 gap-2 text-center">
+      <div class="bg-slate-800/50 rounded-xl p-2 border border-slate-800">
+        <div class="text-xs text-slate-400 font-medium">Tempo de Estudo</div>
+        <div id="total-study-time" class="text-sm font-bold text-blue-400 mt-0.5">0 min</div>
+      </div>
+      <div class="bg-slate-800/50 rounded-xl p-2 border border-slate-800">
+        <div class="text-xs text-slate-400 font-medium">Páginas a Ler</div>
+        <div id="total-pending-pages" class="text-sm font-bold text-amber-400 mt-0.5">0 pág</div>
+      </div>
+      <div class="bg-slate-800/50 rounded-xl p-2 border border-slate-800">
+        <div class="text-xs text-slate-400 font-medium">Rotinas / Tarefas</div>
+        <div id="total-completed-tasks" class="text-sm font-bold text-emerald-400 mt-0.5">0 feitas</div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Conteúdo Principal com as 3 Secções Obrigatórias -->
+  <main class="flex-1 max-w-2xl w-full mx-auto p-4 space-y-6 safe-bottom">
+
+    <!-- SECÇÃO 1: Grelha de Aulas e Blocos do Dia -->
+    <section id="daily-schedule-section" class="space-y-3">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <div class="p-1.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+            </svg>
+          </div>
+          <h2 class="text-sm font-bold tracking-wide uppercase text-slate-200">Grelha de Aulas &amp; Blocos de Estudo</h2>
+        </div>
+        <span id="allocations-count-badge" class="text-xs px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 font-medium">0 blocos</span>
+      </div>
+
+      <!-- Container da Lista de Alocações -->
+      <div id="allocations-list" class="space-y-2.5">
+        <div class="p-6 text-center text-slate-400 bg-slate-850 rounded-2xl border border-slate-800 flex flex-col items-center justify-center gap-2">
+          <svg class="w-8 h-8 text-slate-600 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <span class="text-xs">Sincronizando agendamento...</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECÇÃO 2: Fila Ordenada de Leitura -->
+    <section id="reading-queue-section" class="space-y-3">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <div class="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+            </svg>
+          </div>
+          <h2 class="text-sm font-bold tracking-wide uppercase text-slate-200">Fila Ordenada de Leitura</h2>
+        </div>
+        <span id="reading-count-badge" class="text-xs px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 font-medium">0 itens</span>
+      </div>
+
+      <!-- Container da Lista de Tarefas / Leituras -->
+      <div id="reading-list" class="space-y-3">
+        <div class="p-6 text-center text-slate-400 bg-slate-850 rounded-2xl border border-slate-800">
+          <span class="text-xs">Carregando leituras pendentes...</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECÇÃO 3: Manutenção Doméstica -->
+    <section id="domestic-routines-section" class="space-y-3">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <div class="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
+            </svg>
+          </div>
+          <h2 class="text-sm font-bold tracking-wide uppercase text-slate-200">Manutenção Doméstica &amp; Rotinas</h2>
+        </div>
+        <span id="routines-count-badge" class="text-xs px-2 py-0.5 rounded-md bg-slate-800 text-slate-400 font-medium">0 rotinas</span>
+      </div>
+
+      <!-- Container da Lista de Rotinas -->
+      <div id="routines-list" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <div class="p-6 text-center text-slate-400 bg-slate-850 rounded-2xl border border-slate-800 col-span-full">
+          <span class="text-xs">Carregando rotinas residenciais...</span>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Footer discreto -->
+  <footer class="py-4 text-center text-xs text-slate-600 border-t border-slate-800/50 safe-bottom">
+    <p>AcadAgent v1.0.0 • Motor Preditivo Gemini &amp; APScheduler</p>
+  </footer>
+
+</body>
+</html>

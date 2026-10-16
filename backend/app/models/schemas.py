@@ -147,6 +147,7 @@ class DashboardReadingItem(BaseModel):
     page_count: int
     status: str
     group_required: bool
+    drive_url: Optional[str] = None
 
 
 class DashboardRoutineItem(BaseModel):

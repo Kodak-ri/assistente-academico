@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3b82f6" />
+      <stop offset="100%" stop-color="#1d4ed8" />
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.3" />
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#0f172a" />
+  <rect x="24" y="24" width="464" height="464" rx="96" fill="#1e293b" stroke="#334155" stroke-width="4" />
+  <circle cx="256" cy="256" r="170" fill="url(#grad)" filter="url(#shadow)" />
+  <!-- Academic Mortarboard Icon -->
+  <path d="M128 230 L256 164 L384 230 L256 296 Z" fill="#ffffff" />
+  <path d="M176 265 L176 330 C176 365 336 365 336 330 L336 265" fill="none" stroke="#ffffff" stroke-width="22" stroke-linecap="round" />
+  <path d="M360 240 L360 340 L344 350 L344 330" fill="none" stroke="#f59e0b" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" />
+  <!-- Predictive Sparkle / Calendar Clock Mini -->
+  <circle cx="360" cy="180" r="28" fill="#10b981" />
+  <path d="M360 166 L360 180 L370 186" fill="none" stroke="#ffffff" stroke-width="6" stroke-linecap="round" />
+</svg>
