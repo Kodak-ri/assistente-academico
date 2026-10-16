@@ -3,8 +3,9 @@ from collections.abc import Generator
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker, Session
 
-DEFAULT_DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "academic_platform.db")
-DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DEFAULT_DB_PATH}")
+from backend.app.core.config import settings
+
+DATABASE_URL = settings.DATABASE_URL
 
 class Base(DeclarativeBase):
     pass

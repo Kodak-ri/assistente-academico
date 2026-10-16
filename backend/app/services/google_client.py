@@ -74,7 +74,7 @@ class GoogleWorkspaceClient:
             self._init_services_from_creds()
             return
 
-        if os.path.exists(self.token_path):
+        if self.token_path and os.path.exists(self.token_path):
             self.credentials = Credentials.from_authorized_user_file(self.token_path, self.scopes)
 
         # Renovação preventiva do refresh_token
@@ -82,7 +82,7 @@ class GoogleWorkspaceClient:
             self.credentials.refresh(Request())
             self._save_token()
         elif not self.credentials or not self.credentials.valid:
-            if os.path.exists(self.credentials_path):
+            if self.credentials_path and os.path.exists(self.credentials_path):
                 flow = InstalledAppFlow.from_client_secrets_file(self.credentials_path, self.scopes)
                 self.credentials = flow.run_local_server(port=0)
                 self._save_token()
@@ -292,3 +292,38 @@ class GoogleWorkspaceClient:
             status, done = downloader.next_chunk()
         fh.seek(0)
         return fh
+
+
+_cached_client: Optional[GoogleWorkspaceClient] = None
+
+
+def get_google_workspace_client() -> Optional[GoogleWorkspaceClient]:
+    """Retorna o cliente Google Workspace autenticado ou None se não configurado."""
+    global _cached_client
+    if _cached_client is not None:
+        return _cached_client
+    try:
+        client = GoogleWorkspaceClient()
+        client.authenticate()
+        _cached_client = client
+        return client
+    except Exception:
+        return None
+
+
+def get_calendar_service():
+    """Retorna o serviço Google Calendar v3 autenticado ou None."""
+    client = get_google_workspace_client()
+    return client.calendar_service if client else None
+
+
+def get_classroom_service():
+    """Retorna o serviço Google Classroom v1 autenticado ou None."""
+    client = get_google_workspace_client()
+    return client.classroom_service if client else None
+
+
+def get_drive_service():
+    """Retorna o serviço Google Drive v3 autenticado ou None."""
+    client = get_google_workspace_client()
+    return client.drive_service if client else None

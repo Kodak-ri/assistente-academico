@@ -60,20 +60,34 @@ flowchart TD
     $$T_{\text{total}} = T_{\text{leitura}} + T_{\text{produção}}$$
   - Disparo de hook configurável para emissão de alertas prioritários quando `group_required == True`.
 
-### Motor de Agendamento Linear & Sincronização Google Calendar (Fase 2 — SPEC-002)
+### Núcleo FastAPI, Gestão de Ciclo de Vida & Mensageria Interativa ntfy (Fase 3 — SPEC-003)
 
-- **Motor Determinístico de Agendamento (`backend/app/services/scheduler_engine.py`):**
-  - **Restrição 1 (Margem Antivéspera 24h):** Nenhum bloco pode terminar após $T_{\text{alvo\_fim}} = \text{due\_datetime} - 24\text{h}$. Lança `InsufficientScheduleWindowError` caso a janela seja inviável.
-  - **Restrição 2 (Fracionamento Cognitivo Anti-estafa):**
-    - $T_{\text{total}} \le 90\text{ min} \implies k = 1, d_{\text{bloco}} = T_{\text{total}}$.
-    - $T_{\text{total}} > 90\text{ min} \implies k = \lceil T_{\text{total}} / 75 \rceil, d_{\text{bloco}} = \lceil T_{\text{total}} / k \rceil$.
-    - Estratégia CSP em 3 camadas: Prioriza alocação em dias intercalados; se inviável, no máximo 1 bloco/dia; se inviável, múltiplos blocos/dia em janelas distintas.
-  - **Restrição 3 (Janelas Diárias Permitidas):** Estudo alocado exclusivamente entre 08:30–11:30 e 14:00–21:00.
-  - **Restrição 4 (Subtração Conjuntista e Buffer de 10 min):** Fusão de ocupações (`freebusy`), recorte conjuntista e exigência de capacidade contínua de $d_{\text{bloco}} + 20\text{ min}$ (10 min livres antes e 10 min livres depois). Lança `ScheduleCapacityExceededError` se saturado.
-- **Sincronização e Idempotência (`backend/app/services/calendar_sync.py`):**
-  - Consulta `freebusy.query` no calendário principal (`primary`).
-  - Criação de eventos com título `[Estudo] {tarefa} (Bloco i/k)`, meta proporcional de páginas e link do Drive.
-  - Gravação atômica em `calendar_allocations` e atualização da tarefa para status `'SCHEDULED'`, com garantia de idempotência para evitar duplicação em retentativas.
+- **Núcleo do Servidor Autônomo (`backend/app/main.py`):**
+  - Gerenciador de ciclo de vida assíncrono nativo `lifespan(app: FastAPI)`.
+  - Inicialização automática do banco relacional via `init_db()`.
+  - **APScheduler (`AsyncIOScheduler`):**
+    - **Varredura Periódica a cada 2h (`IntervalTrigger(hours=2)`):** Sincroniza turmas ativas do Classroom, processa novos PDFs no Gemini (disparando alerta urgente se `group_required == True`) e agenda tarefas `PENDING` no Google Calendar.
+    - **Despacho Matinal Diário às 07:30 (`CronTrigger(hour=7, minute=30)`):** Consulta alocações do dia, fila de leitura e rotinas residenciais, enviando o briefing consolidado.
+    - **Rotinas Domésticas:** Carrega expressões crontab cadastradas em `domestic_routines` e agenda triggers individuais (`CronTrigger.from_crontab`).
+    - Drenagem e encerramento gracioso do agendador (`wait=True`) sem perda de estado.
+- **Mensageria e Protocolo ntfy (`backend/app/services/notifier.py`):**
+  - Publicação assíncrona com `httpx.AsyncClient` com timeout estrito de **10 segundos**.
+  - **Tolerância a oscilações de rede:** Algoritmo de retentativas com **recuo exponencial (exponential backoff)** (3 tentativas), preservando o estado local consistente.
+  - **Cabeçalhos Padronizados ntfy:**
+    - `Title`: Título contextual da notificação.
+    - `Priority`: `5` (máxima/urgente) por padrão nos blocos de estudo, alertas de grupo e rotinas domésticas para despertar o ecrã e contornar Doze Mode no Android.
+    - `Tags`: Identificadores visuais com emojis (`books,hourglass_flowing_sand`, `warning`, `house`, `sunrise`).
+    - `Actions`: Contratos interativos acionáveis diretamente da notificação móvel:
+      - **Concluir Tarefa:** `http, Concluir, {PUBLIC_API_BASE_URL}/api/tasks/{task_id}/complete, method=POST, clear=true`
+      - **Adiar 1h (Snooze):** `http, Adiar 1h, {PUBLIC_API_BASE_URL}/api/tasks/{task_id}/snooze?min=60, method=POST, clear=true`
+      - **Abrir PDF:** `view, Abrir PDF, {material_url}`
+      - **Concluir Rotina Doméstica:** `http, Concluir, {PUBLIC_API_BASE_URL}/api/routines/{routine_id}/complete, method=POST, clear=true`
+- **Endpoints REST e Painel da Jornada Diária (`backend/app/api/endpoints.py`):**
+  - `POST /api/tasks/{task_id}/complete`: Transição transacional da tarefa para `'COMPLETED'`.
+  - `POST /api/tasks/{task_id}/snooze?min=60`: Adia a tarefa a partir de `now + min`, recalculando os blocos no motor determinístico e atualizando o Google Calendar. Retorna `409 Conflict` se violar margem de 24h ou capacidade.
+  - `POST /api/routines/{routine_id}/complete`: Marca conclusão de obrigação residencial (`last_completed = now_utc`).
+  - `GET /api/dashboard/daily`: Retorna payload estruturado completo (`classes_and_allocations`, `reading_queue` ordenada e `domestic_routines` com flag `is_completed_today`).
+  - `GET /health`: Healthcheck do microsserviço informando integridade e estado do agendador.
 
 ---
 
@@ -133,24 +147,33 @@ GOOGLE_TOKEN_PATH="token.json"
 
 # String de conexão do banco de dados (SQLite por padrão)
 DATABASE_URL="sqlite:///academic_platform.db"
+
+# Parâmetros do Protocolo ntfy
+NTFY_SERVER_URL="https://ntfy.sh"
+NTFY_TOPIC="assistente_academico_dev"
+PUBLIC_API_BASE_URL="http://localhost:8000"
+
+# Fuso Horário
+TIMEZONE="America/Sao_Paulo"
 ```
 
 ---
 
 ## 🧪 5. Execução dos Testes com Pytest
 
-A suíte de testes utiliza banco SQLite em memória (`sqlite:///:memory:`) e mocks completos das chamadas de rede da Google API (Classroom, Drive, Calendar) e Gemini:
+A suíte de testes utiliza banco SQLite em memória (`sqlite:///:memory:` com `StaticPool`) e mocks completos das chamadas de rede da Google API (Classroom, Drive, Calendar), Gemini e ntfy:
 
 ```bash
-# Executa todos os testes do projeto (SPEC-001 e SPEC-002)
+# Executa todos os testes do projeto (SPEC-001, SPEC-002 e SPEC-003)
 /root/.venv/bin/pytest -v tests/
 
 # Execução individual por especificação
 /root/.venv/bin/pytest -v tests/test_ingestion_and_analyzer.py
 /root/.venv/bin/pytest -v tests/test_scheduler_engine.py
+/root/.venv/bin/pytest -v tests/test_api_and_notifier.py
 ```
 
-### Cobertura da Suíte de Testes (12 Testes Unitários)
+### Cobertura da Suíte de Testes (26 Testes de Integração)
 
 #### Ingestão e Análise Semântica (SPEC-001):
 1. `test_schema_table_creation`: Garante a criação de todas as 5 tabelas e colunas no SQLAlchemy 2.0.
@@ -167,3 +190,20 @@ A suíte de testes utiliza banco SQLite em memória (`sqlite:///:memory:`) e moc
 10. `test_antivespera_24h_margin_and_insufficient_window`: Garante término $\le \text{due} - 24\text{h}$ e lança `InsufficientScheduleWindowError` se inviável.
 11. `test_schedule_capacity_exceeded_error_when_saturated`: Confirma disparo de `ScheduleCapacityExceededError` sem marcações parciais se a agenda estiver lotada.
 12. `test_calendar_sync_and_persistence_mocked`: Valida persistência atômica em `calendar_allocations`, status `'SCHEDULED'`, metadados do evento e idempotência contra duplicatas.
+
+#### Núcleo FastAPI, APScheduler e Mensageria ntfy (SPEC-003):
+13. `test_complete_task_endpoint`: Transição transacional para `COMPLETED` e tratamento de 404 para tarefas inexistentes.
+14. `test_snooze_task_endpoint_success`: Recálculo linear do agendamento com recuo no tempo e geração de novos blocos.
+15. `test_snooze_task_conflict_insufficient_window`: Disparo de `409 Conflict` quando o snooze viola a margem antivéspera de 24h.
+16. `test_complete_routine_endpoint`: Atualização transacional de `last_completed` em `domestic_routines`.
+17. `test_daily_dashboard_endpoint`: Validação estrita do payload completo do dashboard da jornada diária.
+18. `test_daily_dashboard_invalid_date`: Tratamento de erro `400 Bad Request` para strings de data malformadas.
+19. `test_notifier_study_block_alert_headers_and_actions`: Formatação correta dos cabeçalhos ntfy (`Priority: 5`, `Tags` e `Actions` interativas).
+20. `test_notifier_domestic_routine_alert_contract`: Validação do contrato do botão de confirmação de rotina doméstica.
+21. `test_notifier_group_urgent_alert`: Validação do alerta de prioridade máxima para trabalho em grupo.
+22. `test_notifier_oauth_emergency_alert`: Formatação do despacho de emergência por revogação/expiração de token.
+23. `test_notifier_retry_and_backoff_transient_failure`: Tolerância a falhas com 2 falhas de rede simuladas e sucesso na 3ª tentativa.
+24. `test_notifier_exhausted_retries_resilience`: Resiliência contra quedas permanentes sem quebra de fluxo na aplicação.
+25. `test_healthcheck_endpoint`: Verificação de integridade e telemetria dos jobs do agendador em `GET /health`.
+26. `test_lifespan_initialization_and_shutdown`: Inicialização do SQLite, registro de jobs no `AsyncIOScheduler` e drenagem limpa no encerramento.
+

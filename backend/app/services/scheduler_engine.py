@@ -1,5 +1,5 @@
 import math
-from datetime import datetime, date, time, timedelta, timezone
+from datetime import datetime, date, time, timedelta, timezone, tzinfo
 from dataclasses import dataclass
 from typing import List, Tuple, Optional
 
@@ -75,7 +75,7 @@ def merge_busy_intervals(
 
 def get_daily_allowed_windows(
     target_date: date,
-    tz: timezone = timezone.utc,
+    tz: tzinfo = timezone.utc,
 ) -> List[Tuple[datetime, datetime]]:
     """Gera as duas janelas diárias estritas permitidas (Restrição 3):
     - Manhã: 08:30 às 11:30

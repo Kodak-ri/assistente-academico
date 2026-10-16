@@ -85,3 +85,81 @@ class MaterialSchema(BaseModel):
     title: str
     page_count: int = 0
     lexical_density: float = 1.0
+
+
+class DomesticRoutineSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    cron_expression: str
+    last_completed: Optional[datetime] = None
+
+
+class TaskCompleteResponse(BaseModel):
+    status: str
+    message: str
+    task_id: str
+    task_status: str
+
+
+class AllocationSummary(BaseModel):
+    id: int
+    start_time: str
+    end_time: str
+    gcal_event_id: str
+
+
+class TaskSnoozeResponse(BaseModel):
+    status: str
+    message: str
+    task_id: str
+    new_allocations_count: int
+    allocations: list[AllocationSummary]
+
+
+class RoutineCompleteResponse(BaseModel):
+    status: str
+    message: str
+    routine_id: int
+    last_completed: str
+
+
+class DashboardAllocationItem(BaseModel):
+    allocation_id: int
+    task_id: str
+    task_title: str
+    course_id: str
+    course_name: str
+    start_time: str
+    end_time: str
+    gcal_event_id: str
+    status: str
+
+
+class DashboardReadingItem(BaseModel):
+    task_id: str
+    title: str
+    course_id: str
+    course_name: str
+    due_datetime: str
+    est_duration_min: int
+    page_count: int
+    status: str
+    group_required: bool
+
+
+class DashboardRoutineItem(BaseModel):
+    id: int
+    name: str
+    cron_expression: str
+    last_completed: Optional[str] = None
+    is_completed_today: bool
+
+
+class DailyDashboardResponse(BaseModel):
+    date: str
+    classes_and_allocations: list[DashboardAllocationItem]
+    reading_queue: list[DashboardReadingItem]
+    domestic_routines: list[DashboardRoutineItem]
+

@@ -4,6 +4,7 @@ venv/
 __pycache__/
 *.pyc
 .pytest_cache/
+.mypy_cache/
 
 # Credenciais e Segredos (NUNCA versionar)
 credentials.json
