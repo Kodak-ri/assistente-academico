@@ -60,6 +60,21 @@ flowchart TD
     $$T_{\text{total}} = T_{\text{leitura}} + T_{\text{produção}}$$
   - Disparo de hook configurável para emissão de alertas prioritários quando `group_required == True`.
 
+### Motor de Agendamento Linear & Sincronização Google Calendar (Fase 2 — SPEC-002)
+
+- **Motor Determinístico de Agendamento (`backend/app/services/scheduler_engine.py`):**
+  - **Restrição 1 (Margem Antivéspera 24h):** Nenhum bloco pode terminar após $T_{\text{alvo\_fim}} = \text{due\_datetime} - 24\text{h}$. Lança `InsufficientScheduleWindowError` caso a janela seja inviável.
+  - **Restrição 2 (Fracionamento Cognitivo Anti-estafa):**
+    - $T_{\text{total}} \le 90\text{ min} \implies k = 1, d_{\text{bloco}} = T_{\text{total}}$.
+    - $T_{\text{total}} > 90\text{ min} \implies k = \lceil T_{\text{total}} / 75 \rceil, d_{\text{bloco}} = \lceil T_{\text{total}} / k \rceil$.
+    - Estratégia CSP em 3 camadas: Prioriza alocação em dias intercalados; se inviável, no máximo 1 bloco/dia; se inviável, múltiplos blocos/dia em janelas distintas.
+  - **Restrição 3 (Janelas Diárias Permitidas):** Estudo alocado exclusivamente entre 08:30–11:30 e 14:00–21:00.
+  - **Restrição 4 (Subtração Conjuntista e Buffer de 10 min):** Fusão de ocupações (`freebusy`), recorte conjuntista e exigência de capacidade contínua de $d_{\text{bloco}} + 20\text{ min}$ (10 min livres antes e 10 min livres depois). Lança `ScheduleCapacityExceededError` se saturado.
+- **Sincronização e Idempotência (`backend/app/services/calendar_sync.py`):**
+  - Consulta `freebusy.query` no calendário principal (`primary`).
+  - Criação de eventos com título `[Estudo] {tarefa} (Bloco i/k)`, meta proporcional de páginas e link do Drive.
+  - Gravação atômica em `calendar_allocations` e atualização da tarefa para status `'SCHEDULED'`, com garantia de idempotência para evitar duplicação em retentativas.
+
 ---
 
 ## 🗄️ 3. Esquema das Tabelas do Banco de Dados
@@ -124,16 +139,31 @@ DATABASE_URL="sqlite:///academic_platform.db"
 
 ## 🧪 5. Execução dos Testes com Pytest
 
-A suíte de testes utiliza banco SQLite em memória (`sqlite:///:memory:`) e mocks completos das chamadas de rede da Google API e Gemini:
+A suíte de testes utiliza banco SQLite em memória (`sqlite:///:memory:`) e mocks completos das chamadas de rede da Google API (Classroom, Drive, Calendar) e Gemini:
 
 ```bash
+# Executa todos os testes do projeto (SPEC-001 e SPEC-002)
+/root/.venv/bin/pytest -v tests/
+
+# Execução individual por especificação
 /root/.venv/bin/pytest -v tests/test_ingestion_and_analyzer.py
+/root/.venv/bin/pytest -v tests/test_scheduler_engine.py
 ```
 
-### Cobertura da Suíte de Testes
+### Cobertura da Suíte de Testes (12 Testes Unitários)
+
+#### Ingestão e Análise Semântica (SPEC-001):
 1. `test_schema_table_creation`: Garante a criação de todas as 5 tabelas e colunas no SQLAlchemy 2.0.
 2. `test_filter_active_courses_discard_logic`: Valida os 3 filtros determinísticos de descarte de turmas inativas/antigas.
 3. `test_in_memory_pdf_reading_no_disk`: Assegura a extração de páginas e texto estritamente em memória com PyMuPDF.
 4. `test_effort_calculation_mathematics_and_clamp`: Valida o clamp $\kappa \in [1.0, 2.2]$, penalidade de língua estrangeira ($\lambda = 1.35$) e os tempos $T_{\text{leitura}}$ e $T_{\text{total}}$.
 5. `test_priority_alert_and_persistence`: Testa o disparo do hook prioritário para trabalho em grupo e a persistência relacional completa.
 6. `test_no_alert_when_group_not_required`: Confirma que tarefas individuais não acionam o alerta prioritário.
+
+#### Motor de Agendamento Linear e Sincronização Google Calendar (SPEC-002):
+7. `test_cognitive_chunking_math`: Valida o fracionamento em blocos ($\le 90$ min vs $> 90$ min, ex: 140 min $\rightarrow$ 2 de 70 min; 160 min $\rightarrow$ 3 de 54 min).
+8. `test_busy_intervals_merging_and_window_subtraction`: Valida a fusão de intervalos ocupados do Calendar e recorte nas janelas permitidas (08:30–11:30 e 14:00–21:00).
+9. `test_mandatory_10min_transition_buffer`: Garante que blocos exigem $d_{\text{bloco}} + 20$ min contínuos, com 10 min de resguardo antes e depois.
+10. `test_antivespera_24h_margin_and_insufficient_window`: Garante término $\le \text{due} - 24\text{h}$ e lança `InsufficientScheduleWindowError` se inviável.
+11. `test_schedule_capacity_exceeded_error_when_saturated`: Confirma disparo de `ScheduleCapacityExceededError` sem marcações parciais se a agenda estiver lotada.
+12. `test_calendar_sync_and_persistence_mocked`: Valida persistência atômica em `calendar_allocations`, status `'SCHEDULED'`, metadados do evento e idempotência contra duplicatas.
