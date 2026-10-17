@@ -1,50 +1,94 @@
 # 🎓 Assistente Acadêmico Autônomo & Agendamento Preditivo
 
-Plataforma autônoma headless para gestão acadêmica, triagem inteligente de materiais do Google Workspace (Classroom, Drive, Calendar) e estimativa semântica de esforço temporal com IA (Gemini).
+<p align="center">
+  <img src="https://img.shields.io/badge/Release-v1.0.0-0a84ff?style=for-the-badge&logo=github" alt="Release v1.0.0" />
+  <img src="https://img.shields.io/badge/Python-3.13-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.13" />
+  <img src="https://img.shields.io/badge/FastAPI-0.115+-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI" />
+  <img src="https://img.shields.io/badge/Gemini%202.5-Flash-4285F4?style=for-the-badge&logo=google&logoColor=white" alt="Gemini 2.5 Flash" />
+  <img src="https://img.shields.io/badge/Google-Calendar%20%26%20Workspace-34A853?style=for-the-badge&logo=google-calendar&logoColor=white" alt="Google Workspace" />
+  <img src="https://img.shields.io/badge/PWA-Mobile--First-5A0FC8?style=for-the-badge&logo=pwa&logoColor=white" alt="PWA Standalone" />
+  <img src="https://img.shields.io/badge/Tailwind-CSS%20v3-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white" alt="Tailwind CSS" />
+  <img src="https://img.shields.io/badge/Notificações-ntfy.sh-ff6f00?style=for-the-badge" alt="ntfy.sh" />
+  <img src="https://img.shields.io/badge/Pytest-30%2F30%20(100%25)-10b981?style=for-the-badge&logo=pytest&logoColor=white" alt="Pytest 30/30" />
+  <img src="https://img.shields.io/badge/Mypy-Strict%20(0%20Errors)-blue?style=for-the-badge" alt="Mypy Strict" />
+</p>
+
+Plataforma autônoma headless e interface visual progressiva (PWA) para gestão acadêmica universitária, triagem inteligente de materiais do Google Workspace (Classroom, Drive, Calendar), estimativa cognitiva de esforço com IA (Gemini 2.5 Flash), agendamento preditivo determinístico, notificações interativas via protocolo **ntfy** e painel mobile-first com mutações otimistas.
 
 ---
 
-## 🚀 1. Visão Geral e Objetivo
+## 🧭 Quadro Geral de Status do Projeto (Roadmap Kanban)
 
-O **Assistente Acadêmico Autônomo** é projetado para eliminar a sobrecarga de organização acadêmica de estudantes universitários. Ele atua como um agente em segundo plano que:
-
-1. **Sincroniza e filtra** as turmas ativas do semestre letivo no Google Classroom.
-2. **Identifica anexos PDF** de materiais de aula e enunciados de tarefas diretamente no Google Drive.
-3. **Extrai texto em memória** (sem tocar o disco) com PyMuPDF.
-4. **Avalia a complexidade cognitiva** e requisitos de produção via Gemini API (`gemini-2.5-flash`) com Structured Outputs.
-5. **Calcula o tempo de dedicação real** com fórmulas calibradas e regras de negócio determinísticas.
-6. **Emite alertas imediatos** para tarefas que exigem trabalho em grupo, divisão de seminários ou equipes.
-7. **Persiste todo o ecossistema** de forma relacional em SQLite via SQLAlchemy 2.0.
+| Especificação | Escopo & Tecnologia | Status | Cobertura de Testes |
+| :--- | :--- | :---: | :---: |
+| **SPEC-001** | Ingestão Tripartida (Google Classroom/Drive), Leitura de PDFs em RAM (`io.BytesIO` com PyMuPDF) e Avaliação Cognitiva via Gemini 2.5 Flash Structured Outputs | **✅ Concluído** | 6 Testes Unitários/Integração |
+| **SPEC-002** | Motor Determinístico Linear de Agendamento, Fracionamento Cognitivo ($\le 90$ min), Resguardo de 10 min, Margem Antivéspera de 24h e Sincronização Google Calendar | **✅ Concluído** | 6 Testes de Algoritmo/Agenda |
+| **SPEC-003** | Núcleo FastAPI com Gerenciador de Ciclo de Vida (`lifespan`), APScheduler (Varredura 2h + Despacho 07:30 + Crons Domésticos), Mensageria ntfy (Ações Táteis) e Endpoints REST | **✅ Concluído** | 14 Testes de API & Notifier |
+| **SPEC-004** | Painel Visual Responsivo PWA Mobile-First, Vanilla JavaScript (ES6+), Tailwind CSS, Service Worker (Stale-While-Revalidate + Network-First) e Mutações Otimistas com Rollback | **✅ Concluído** | 4 Testes de PWA & App Shell |
+| **Total Consolidado** | **Pipeline Completo de Ponta a Ponta** | **🏆 v1.0.0** | **30/30 Testes (100% Passed)** |
 
 ---
 
-## 🏗️ 2. Arquitetura da Solução (Fase 1 — SPEC-001)
+## 🏗️ 1. Arquitetura da Solução de Ponta a Ponta
 
 ```mermaid
 flowchart TD
-    subgraph Ingestao["1. Ingestão & Triagem Tripartida"]
-        GC[Google Classroom API] -->|courses.list| F1[Filtro 1: Criação < 180 dias]
-        F1 --> F2[Filtro 2: Persistência Local is_active != False]
-        F2 --> F3[Filtro 3: Atividade Mural/Tarefas < 45 dias]
+    subgraph Ingestao["1. Ingestão & Triagem Tripartida (SPEC-001)"]
+        GC[Google Classroom API] -->|courses.list| F1["Filtro 1: Criação < 180 dias"]
+        F1 --> F2["Filtro 2: is_active != False"]
+        F2 --> F3["Filtro 3: Atividade Mural/Tarefas < 45 dias"]
         F3 -->|Turmas Vigentes| GD[Google Drive API]
+        GD -->|drive.files.get_media| RAM["io.BytesIO (Zero disco)"]
+        RAM --> FITZ["PyMuPDF (Extrato Textual & Contagem)"]
+        FITZ --> GENAI["Gemini 2.5 Flash (Structured Outputs)"]
+        GENAI --> FORM["Fórmula de Esforço Temporal & Clamp"]
     end
 
-    subgraph Processamento["2. Processamento em Memória"]
-        GD -->|drive.files.get_media| RAM[io.BytesIO - Sem escrita em disco]
-        RAM --> FITZ[PyMuPDF: Extração de Páginas e Amostra Textual]
-        FITZ --> GENAI[Gemini 2.5 Flash: Structured Outputs]
+    subgraph Persistencia["2. Persistência Relacional"]
+        FORM --> DB[("SQLite (SQLAlchemy 2.0)")]
+        DB <--> DB_MODELS["courses, materials, tasks,<br/>calendar_allocations, domestic_routines"]
     end
 
-    subgraph Calculo["3. Cálculo de Esforço & Decisão"]
-        GENAI --> FORM[Fórmula de Esforço Temporal]
-        FORM -->|group_required == True| HOOK[Hook Alerta Prioritário]
-        FORM --> DB[(SQLite: SQLAlchemy 2.0)]
+    subgraph Agendador["3. Motor Linear Determinístico & Calendar (SPEC-002)"]
+        DB --> SCHED_ENG["Motor de Agendamento Linear"]
+        SCHED_ENG --> CHUNK["Fracionamento Cognitivo (<=90min)"]
+        CHUNK --> WIN["Recorte Janelas (08:30-11:30 | 14:00-21:00)"]
+        WIN --> BUF["Buffer de Transição (+10min antes/depois)"]
+        BUF --> MARG["Margem Antivéspera (Término <= Due - 24h)"]
+        MARG --> GCAL[Google Calendar API]
+        GCAL --> DB
+    end
+
+    subgraph Backend["4. Núcleo FastAPI & APScheduler (SPEC-003)"]
+        FASTAPI["FastAPI Core (lifespan)"]
+        SCHED["APScheduler (AsyncIOScheduler)"]
+        FASTAPI --- SCHED
+        SCHED -->|A cada 2h| SCAN["Varredura Periódica Classroom"]
+        SCHED -->|07:30 Diário| BRIEF["Despacho Matinal Diário"]
+        SCHED -->|Crontab Individual| CRONS["Rotinas Domésticas"]
+        SCAN & BRIEF & CRONS --> NTFY["Serviço ntfy (Priority 5, Retry Backoff)"]
+        NTFY --> NOTIF["Notificação Smartphone (ntfy.sh)"]
+    end
+
+    subgraph PWA["5. Painel Visual PWA Mobile-First (SPEC-004)"]
+        FASTAPI -->|GET /, /manifest.json, /service-worker.js, /static/*| CLIENT["Navegador Móvel / A2HS Standalone"]
+        CLIENT --> SW["Service Worker (Cache Híbrido)"]
+        SW -->|Stale-While-Revalidate| SHELL["App Shell (index.html, app.js, icons)"]
+        SW -->|Network-First| DASH_API["GET /api/dashboard/daily"]
+        CLIENT --> OPTIMISTIC["Mutações Otimistas (app.js)"]
+        OPTIMISTIC -->|POST /api/tasks/{id}/complete| FASTAPI
+        OPTIMISTIC -->|POST /api/tasks/{id}/snooze?min=60| FASTAPI
+        OPTIMISTIC -->|POST /api/routines/{id}/complete| FASTAPI
+        OPTIMISTIC -.->|Erro / 409 Conflict| ROLLBACK["Rollback Atômico no DOM & Toast"]
     end
 ```
 
-### Componentes Principais
+---
 
-- **Persistência (`backend/app/core/` e `backend/app/models/db_models.py`):** Configuração moderna de engine e sessão SQLAlchemy 2.0 com SQLite.
+## 🧩 2. Especificações Técnicas por Fase
+
+### Fase 1 — Ingestão Inteligente & Avaliação Cognitiva (SPEC-001)
+- **Persistência Relacional (`backend/app/core/` e `backend/app/models/db_models.py`):** Configuração moderna de engine e sessão SQLAlchemy 2.0 com SQLite em conformidade estrita de tipos e integridade referencial.
 - **Contratos e Schemas (`backend/app/models/schemas.py`):** Modelos Pydantic v2 com validação estrita, clamp numérico automático de densidade textual ($\kappa_{\text{densidade}} \in [1.0, 2.2]$) e configuração `ConfigDict(from_attributes=True)`.
 - **Conector Google Workspace (`backend/app/services/google_client.py`):**
   - Autenticação OAuth2 com renovação preventiva de `refresh_token`.
@@ -60,40 +104,35 @@ flowchart TD
     $$T_{\text{total}} = T_{\text{leitura}} + T_{\text{produção}}$$
   - Disparo de hook configurável para emissão de alertas prioritários quando `group_required == True`.
 
-### Núcleo FastAPI, Gestão de Ciclo de Vida & Mensageria Interativa ntfy (Fase 3 — SPEC-003)
+### Fase 2 — Motor de Agendamento Linear & Sincronização Google Calendar (SPEC-002)
+- **Motor Linear de Alocação (`backend/app/services/scheduler.py`):**
+  - **Fracionamento Cognitivo:** Tarefas com $T_{\text{total}} \le 90$ minutos são alocadas em um bloco único. Tarefas $> 90$ minutos são fracionadas de forma equilibrada em $N = \lceil T_{\text{total}} / 90 \rceil$ blocos iguais (ex.: 140 min $\rightarrow$ 2 blocos de 70 min; 160 min $\rightarrow$ 3 blocos de 54 min).
+  - **Janelas Diárias Permitidas:** Alocação restrita a horários produtivos saudáveis: matutino (**08:30 às 11:30**) e vespertino/noturno (**14:00 às 21:00**), bloqueando fins de semana por padrão.
+  - **Buffer de Transição Contínuo:** Cada bloco exige $d_{\text{bloco}} + 20$ minutos contínuos na agenda (10 min de resguardo antes e 10 min depois).
+  - **Margem Antivéspera Rígida de 24h:** O término do último bloco de estudo deve ocorrer obrigatoriamente antes de $\text{due\_datetime} - 24\text{h}$.
+  - **Tratamento de Exceções Determinístico:** Lança `InsufficientScheduleWindowError` se o prazo violar a margem antivéspera e `ScheduleCapacityExceededError` se a agenda estiver saturada, evitando alocações parciais inconsistentes.
+- **Sincronização Bidirecional (`backend/app/services/calendar_sync.py`):**
+  - Consulta `freebusy.query` no Google Calendar consolidando compromissos existentes.
+  - Persistência atômica dos blocos em `calendar_allocations` com links diretos para a atividade no Google Classroom e anexos no Google Drive.
+  - Idempotência total contra eventos duplicados.
 
+### Fase 3 — Núcleo FastAPI, Gestão de Ciclo de Vida & Mensageria ntfy (SPEC-003)
 - **Núcleo do Servidor Autônomo (`backend/app/main.py`):**
-  - Gerenciador de ciclo de vida assíncrono nativo `lifespan(app: FastAPI)`.
-  - Inicialização automática do banco relacional via `init_db()`.
-  - **APScheduler (`AsyncIOScheduler`):**
-    - **Varredura Periódica a cada 2h (`IntervalTrigger(hours=2)`):** Sincroniza turmas ativas do Classroom, processa novos PDFs no Gemini (disparando alerta urgente se `group_required == True`) e agenda tarefas `PENDING` no Google Calendar.
-    - **Despacho Matinal Diário às 07:30 (`CronTrigger(hour=7, minute=30)`):** Consulta alocações do dia, fila de leitura e rotinas residenciais, enviando o briefing consolidado.
+  - Gerenciador de ciclo de vida assíncrono nativo `lifespan(app: FastAPI)` com inicialização automática do banco relacional (`init_db()`).
+  - **APScheduler Integrado (`AsyncIOScheduler`):**
+    - **Varredura Periódica a cada 2h (`IntervalTrigger(hours=2)`):** Sincroniza turmas ativas do Classroom, processa novos PDFs no Gemini (alerta urgente se `group_required == True`) e agenda tarefas `PENDING` no Calendar.
+    - **Despacho Matinal Diário às 07:30 (`CronTrigger(hour=7, minute=30)`):** Consulta alocações do dia, fila de leitura e rotinas residenciais, enviando briefing consolidado.
     - **Rotinas Domésticas:** Carrega expressões crontab cadastradas em `domestic_routines` e agenda triggers individuais (`CronTrigger.from_crontab`).
     - Drenagem e encerramento gracioso do agendador (`wait=True`) sem perda de estado.
 - **Mensageria e Protocolo ntfy (`backend/app/services/notifier.py`):**
   - Publicação assíncrona com `httpx.AsyncClient` com timeout estrito de **10 segundos**.
   - **Tolerância a oscilações de rede:** Algoritmo de retentativas com **recuo exponencial (exponential backoff)** (3 tentativas), preservando o estado local consistente.
-  - **Cabeçalhos Padronizados ntfy:**
-    - `Title`: Título contextual da notificação.
-    - `Priority`: `5` (máxima/urgente) por padrão nos blocos de estudo, alertas de grupo e rotinas domésticas para despertar o ecrã e contornar Doze Mode no Android.
-    - `Tags`: Identificadores visuais com emojis (`books,hourglass_flowing_sand`, `warning`, `house`, `sunrise`).
-    - `Actions`: Contratos interativos acionáveis diretamente da notificação móvel:
-      - **Concluir Tarefa:** `http, Concluir, {PUBLIC_API_BASE_URL}/api/tasks/{task_id}/complete, method=POST, clear=true`
-      - **Adiar 1h (Snooze):** `http, Adiar 1h, {PUBLIC_API_BASE_URL}/api/tasks/{task_id}/snooze?min=60, method=POST, clear=true`
-      - **Abrir PDF:** `view, Abrir PDF, {material_url}`
-      - **Concluir Rotina Doméstica:** `http, Concluir, {PUBLIC_API_BASE_URL}/api/routines/{routine_id}/complete, method=POST, clear=true`
-- **Endpoints REST e Painel da Jornada Diária (`backend/app/api/endpoints.py`):**
-  - `POST /api/tasks/{task_id}/complete`: Transição transacional da tarefa para `'COMPLETED'`.
-  - `POST /api/tasks/{task_id}/snooze?min=60`: Adia a tarefa a partir de `now + min`, recalculando os blocos no motor determinístico e atualizando o Google Calendar. Retorna `409 Conflict` se violar margem de 24h ou capacidade.
-  - `POST /api/routines/{routine_id}/complete`: Marca conclusão de obrigação residencial (`last_completed = now_utc`).
-  - `GET /api/dashboard/daily`: Retorna payload estruturado completo (`classes_and_allocations`, `reading_queue` ordenada e `domestic_routines` com flag `is_completed_today`).
-  - `GET /health`: Healthcheck do microsserviço informando integridade e estado do agendador.
+  - **Cabeçalhos ntfy:** `Priority: 5` (urgente para despertar o ecrã e contornar Doze Mode no Android), tags com emojis contextuais e ações interativas (`http, Concluir`, `http, Adiar 1h`, `view, Abrir PDF`).
 
-### Painel Visual Responsivo em Progressive Web App (Fase 4 — SPEC-004)
-
+### Fase 4 — Painel Visual PWA Mobile-First & Mutações Otimistas (SPEC-004)
 - **Entrega de Arquivos Estáticos & PWA no FastAPI (`backend/app/main.py`):**
-  - Servimento do App Shell diretamente em `GET /` (`FileResponse` de `static/index.html`).
-  - Rota de escopo raiz para o Service Worker (`GET /service-worker.js`) com o cabeçalho `Service-Worker-Allowed: /`.
+  - Servimento do App Shell em `GET /` (`FileResponse` de `static/index.html`).
+  - Rota de escopo raiz para o Service Worker (`GET /service-worker.js`) com cabeçalho `Service-Worker-Allowed: /`.
   - Manifesto W3C servido em `GET /manifest.json` com `media_type="application/manifest+json"`.
   - Montagem de ativos estáticos, fontes e ícones em `/static` (`StaticFiles`).
 - **Interface Mobile-First & Vanilla ES6+ (`backend/app/static/`):**
@@ -110,14 +149,26 @@ flowchart TD
 - **Mutações Otimistas (Optimistic UI Updates) & Rollback (`app.js`):**
   - Transições visuais e contadores recalculados instantaneamente no DOM ao interagir com **Concluir** ou **Adiar 1h**.
   - Mecanismo de **Snapshot e Rollback**: em caso de falha de rede ou rejeição pelo servidor (`409 Conflict`), o elemento retorna ao estado original e um toast contextual é exibido.
-- **Como Acessar e Instalar (Add to Home Screen - A2HS):**
-  - Abra o navegador do smartphone e navegue para a URL da aplicação (ex: `http://localhost:8000/` ou IP do servidor).
-  - **Android (Chrome):** O navegador exibirá a opção de instalar ou no menu de 3 pontos selecione "Adicionar à tela inicial" / "Instalar aplicativo".
-  - **iOS (Safari):** Toque no botão de compartilhamento e selecione "Adicionar à Tela de Início". O app iniciará em modo tela cheia (`display: standalone`).
 
 ---
 
-## 🗄️ 3. Esquema das Tabelas do Banco de Dados
+## 📡 3. Especificação dos Contratos da API REST
+
+| Método | Rota | Descrição Técnica | Parâmetros / Payload | Resposta de Sucesso | Tratamento de Erro |
+| :---: | :--- | :--- | :--- | :--- | :--- |
+| `GET` | `/` | Serve o App Shell do PWA | — | `200 OK` (`text/html`) | `404` se ausente |
+| `GET` | `/manifest.json` | Manifesto W3C PWA Standalone | — | `200 OK` (`application/manifest+json`) | `404` se ausente |
+| `GET` | `/service-worker.js` | Service Worker com escopo raiz | Header: `Service-Worker-Allowed: /` | `200 OK` (`application/javascript`) | `404` se ausente |
+| `GET` | `/static/{file_path}` | Ativos estáticos e ícones | — | `200 OK` (MIME apropriado) | `404` se ausente |
+| `GET` | `/health` | Integridade do backend e scheduler | — | `200 OK` JSON com telemetria de jobs | `500` se offline |
+| `GET` | `/api/dashboard/daily` | Payload consolidado da jornada diária | `?target_date=YYYY-MM-DD` (opcional) | `200 OK` com alocações, fila de leitura e rotinas | `400` para data inválida |
+| `POST` | `/api/tasks/{task_id}/complete` | Transição atômica para status `COMPLETED` | `task_id` na URL | `200 OK` com modelo da tarefa | `404` se inexistente |
+| `POST` | `/api/tasks/{task_id}/snooze` | Adia a tarefa recalculando blocos lineares | `?min=60` (padrão: 60) | `200 OK` com novas alocações | `404` (inexistente) / `409 Conflict` (janela saturada ou <24h) |
+| `POST` | `/api/routines/{routine_id}/complete` | Atualiza carimbo `last_completed` da rotina | `routine_id` na URL | `200 OK` com modelo da rotina | `404` se inexistente |
+
+---
+
+## 🗄️ 4. Esquema Relacional do Banco de Dados (SQLite / SQLAlchemy 2.0)
 
 | Tabela | Coluna | Tipo | Restrições | Descrição |
 | :--- | :--- | :--- | :--- | :--- |
@@ -139,65 +190,76 @@ flowchart TD
 | | `status` | VARCHAR(32) | DEFAULT 'PENDING' | Status (`PENDING`, `SCHEDULED`, `COMPLETED`) |
 | **`calendar_allocations`** | `id` | INTEGER | PK, Autoincrement | Identificador do slot alocado |
 | | `task_id` | VARCHAR(64) | ForeignKey(`tasks.id`) | Tarefa associada |
-| | `gcal_event_id` | VARCHAR(128) | NOT NULL | ID do evento gerado no Google Calendar |
 | | `start_time` | DATETIME | NOT NULL | Início do bloco de estudo |
 | | `end_time` | DATETIME | NOT NULL | Término do bloco de estudo |
-| **`domestic_routines`** | `id` | INTEGER | PK, Autoincrement | Identificador da rotina doméstica |
-| | `name` | VARCHAR(128) | NOT NULL | Nome da atividade fixa |
-| | `cron_expression` | VARCHAR(64) | NOT NULL | Expressão cron de recorrência (ex: `0 20 * * 2,4`) |
-| | `last_completed` | DATETIME | NULLABLE | Data de conclusão mais recente |
+| | `google_event_id` | VARCHAR(128) | NULLABLE | ID do evento gerado no Google Calendar |
+| **`domestic_routines`** | `id` | INTEGER | PK, Autoincrement | Identificador da rotina residencial |
+| | `name` | VARCHAR(255) | NOT NULL | Nome da tarefa doméstica |
+| | `cron_expression` | VARCHAR(64) | NOT NULL | Expressão crontab periódica |
+| | `last_completed` | DATETIME | NULLABLE | Carimbo UTC da última conclusão |
 
 ---
 
-## ⚙️ 4. Pré-requisitos e Configuração do Ambiente
+## ⚙️ 5. Configuração e Variáveis de Ambiente
 
-### Requisitos
-- **Python:** 3.11+ (homologado em Python 3.13)
-- **Virtualenv:** `/root/.venv` (ou venv local de preferência)
+Crie o arquivo `.env` na raiz do projeto com base nas seguintes diretivas:
 
-### Instalação de Dependências
-```bash
-/root/.venv/bin/pip install --upgrade pip
-/root/.venv/bin/pip install -r backend/requirements.txt
-```
+```env
+# Chave Oficial da API Gemini (Google AI Studio)
+GEMINI_API_KEY="AIzaSyYourKeyHere"
 
-### Variáveis de Ambiente
-Crie um arquivo `.env` (ignorado pelo git) com as seguintes configurações:
-```bash
-# Chave de acesso à API do Gemini
-GEMINI_API_KEY="AIzaSy..."
+# Caminhos do OAuth2 do Google Workspace
+GOOGLE_CREDENTIALS_FILE="credentials.json"
+GOOGLE_TOKEN_FILE="token.json"
 
-# Caminhos das credenciais do Google Workspace OAuth2
-GOOGLE_CREDENTIALS_PATH="credentials.json"
-GOOGLE_TOKEN_PATH="token.json"
-
-# String de conexão do banco de dados (SQLite por padrão)
-DATABASE_URL="sqlite:///academic_platform.db"
+# Banco de Dados SQLite Relacional
+DATABASE_URL="sqlite:///./academic_assistant.db"
 
 # Parâmetros do Protocolo ntfy
 NTFY_SERVER_URL="https://ntfy.sh"
 NTFY_TOPIC="assistente_academico_dev"
 PUBLIC_API_BASE_URL="http://localhost:8000"
 
-# Fuso Horário
+# Fuso Horário Canônico
 TIMEZONE="America/Sao_Paulo"
 ```
 
 ---
 
-## 🧪 5. Execução dos Testes com Pytest
+## 🚀 6. Como Executar a Aplicação e Instalar o PWA
 
-A suíte de testes utiliza banco SQLite em memória (`sqlite:///:memory:` com `StaticPool`) e mocks completos das chamadas de rede da Google API (Classroom, Drive, Calendar), Gemini e ntfy:
+### 6.1 Execução do Backend e Painel Web
+```bash
+# Navegue até o diretório do projeto
+cd /work/assistente-academico
+
+# Inicie o servidor FastAPI via Uvicorn
+/root/.venv/bin/uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+Acesse a aplicação no navegador móvel ou desktop em: `http://localhost:8000/`.
+
+### 6.2 Instalação no Celular (Add to Home Screen - A2HS)
+- **Android (Google Chrome):**
+  1. Abra `http://<IP_OU_HOST>:8000/`.
+  2. O navegador exibirá a barra "Adicionar AcadAgent à tela inicial" ou acesse o menu de 3 pontos e toque em **"Instalar aplicativo"**.
+  3. O aplicativo funcionará em tela cheia (`standalone`), sem barras de navegação do browser.
+- **iOS (Apple Safari):**
+  1. Abra `http://<IP_OU_HOST>:8000/` no Safari.
+  2. Toque no ícone de compartilhamento (quadrado com seta).
+  3. Selecione **"Adicionar à Tela de Início"** e confirme.
+
+---
+
+## 🧪 7. Validação e Execução dos Testes Automatizados
+
+A suíte de testes utiliza banco SQLite em memória isolado (`sqlite:///:memory:` com `StaticPool`) e mocks completos das chamadas de rede da Google API (Classroom, Drive, Calendar), Gemini e ntfy:
 
 ```bash
-# Executa todos os testes do projeto (SPEC-001, SPEC-002, SPEC-003 e SPEC-004)
+# Executa todos os testes do projeto (SPEC-001 a SPEC-004)
 /root/.venv/bin/pytest -v tests/
 
-# Execução individual por especificação
-/root/.venv/bin/pytest -v tests/test_ingestion_and_analyzer.py
-/root/.venv/bin/pytest -v tests/test_scheduler_engine.py
-/root/.venv/bin/pytest -v tests/test_api_and_notifier.py
-/root/.venv/bin/pytest -v tests/test_pwa_static.py
+# Verificação de Tipagem Estrita (Zero Erros)
+/root/.venv/bin/mypy backend/app
 ```
 
 ### Cobertura da Suíte de Testes (30 Testes de Integração e UI)
@@ -239,4 +301,3 @@ A suíte de testes utiliza banco SQLite em memória (`sqlite:///:memory:` com `S
 28. `test_manifest_json_specification`: Conformidade com o padrão W3C Web App Manifest (`standalone`, escopo raiz e múltiplos ícones maskable).
 29. `test_service_worker_delivery_and_headers`: Entrega de `service-worker.js` com cabeçalho `Service-Worker-Allowed: /` e lógica de cache híbrido.
 30. `test_static_files_mount_and_app_js`: Acesso direto aos ativos estáticos montados (`/static/app.js`, `/static/icons/`) e integridade dos handlers JavaScript.
-
