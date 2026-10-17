@@ -15,6 +15,10 @@
 
 Plataforma autônoma headless e interface visual progressiva (PWA) para gestão acadêmica universitária, triagem inteligente de materiais do Google Workspace (Classroom, Drive, Calendar), estimativa cognitiva de esforço com IA (Gemini 2.5 Flash), agendamento preditivo determinístico, notificações interativas via protocolo **ntfy** e painel mobile-first com mutações otimistas.
 
+> [!TIP]
+> **Novo por aqui ou quer colocar tudo funcionando sem complicação?**
+> Acesse o nosso **[📖 Guia Passo a Passo para Qualquer Pessoa (`TUTORIAL.md`)](./TUTORIAL.md)** — um tutorial simples, sem jargões técnicos, mostrando do zero como pegar suas chaves gratuitas, ligar o assistente e instalar o aplicativo no celular em 10 minutos!
+
 ---
 
 ## 🧭 Quadro Geral de Status do Projeto (Roadmap Kanban)
