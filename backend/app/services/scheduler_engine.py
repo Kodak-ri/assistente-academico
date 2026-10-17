@@ -55,8 +55,24 @@ def merge_busy_intervals(
     if not intervals:
         return []
 
+    # Normaliza caso haja mistura de datetimes offset-naive e offset-aware
+    tz_ref: Optional[tzinfo] = next(
+        (dt.tzinfo for pair in intervals for dt in pair if dt.tzinfo is not None),
+        None,
+    )
+    if tz_ref is not None:
+        norm_intervals: List[Tuple[datetime, datetime]] = [
+            (
+                s.replace(tzinfo=tz_ref) if s.tzinfo is None else s.astimezone(tz_ref),
+                e.replace(tzinfo=tz_ref) if e.tzinfo is None else e.astimezone(tz_ref),
+            )
+            for s, e in intervals
+        ]
+    else:
+        norm_intervals = list(intervals)
+
     # Ordena pelo início
-    sorted_intervals = sorted(intervals, key=lambda x: x[0])
+    sorted_intervals = sorted(norm_intervals, key=lambda x: x[0])
     merged: List[Tuple[datetime, datetime]] = []
 
     current_start, current_end = sorted_intervals[0]
@@ -98,13 +114,27 @@ def subtract_busy_from_window(
     Retorna uma lista de sub-intervalos livres contínuos.
     """
     w_start, w_end = window
+    w_tz = w_start.tzinfo
+    if w_tz is not None and w_end.tzinfo is None:
+        w_end = w_end.replace(tzinfo=w_tz)
+    elif w_tz is None and w_end.tzinfo is not None:
+        w_tz = w_end.tzinfo
+        w_start = w_start.replace(tzinfo=w_tz)
+
     if w_start >= w_end:
         return []
 
     free_segments: List[Tuple[datetime, datetime]] = []
     current_cursor = w_start
 
-    for b_start, b_end in merged_busy:
+    for raw_b_start, raw_b_end in merged_busy:
+        if w_tz is not None:
+            b_start = raw_b_start.replace(tzinfo=w_tz) if raw_b_start.tzinfo is None else raw_b_start.astimezone(w_tz)
+            b_end = raw_b_end.replace(tzinfo=w_tz) if raw_b_end.tzinfo is None else raw_b_end.astimezone(w_tz)
+        else:
+            b_start = raw_b_start.replace(tzinfo=None) if raw_b_start.tzinfo is not None else raw_b_start
+            b_end = raw_b_end.replace(tzinfo=None) if raw_b_end.tzinfo is not None else raw_b_end
+
         if b_end <= current_cursor:
             continue
         if b_start >= w_end:
@@ -149,16 +179,27 @@ class DeterministicSchedulerEngine:
         4. Subtração conjuntista e buffer de 10 min antes e 10 min depois de cada bloco.
         Priorização de distribuição: Dias intercalados -> 1 bloco/dia -> múltiplos blocos/dia.
         """
-        # Normalização de timezone
-        tz = due_datetime.tzinfo or timezone.utc
+        # Normalização padronizada de timezone (previne TypeError entre naive e aware)
+        tz: tzinfo = (
+            due_datetime.tzinfo
+            or (now.tzinfo if (now is not None and now.tzinfo is not None) else None)
+            or timezone.utc
+        )
+        if due_datetime.tzinfo is None:
+            due_dt_norm = due_datetime.replace(tzinfo=tz)
+        else:
+            due_dt_norm = due_datetime.astimezone(tz)
+
         ref_now = now or datetime.now(tz)
         if ref_now.tzinfo is None:
             ref_now = ref_now.replace(tzinfo=tz)
+        else:
+            ref_now = ref_now.astimezone(tz)
 
         # ---------------------------------------------------------------------
         # Restrição 1: Margem de Segurança Antivéspera (24h)
         # ---------------------------------------------------------------------
-        target_deadline = due_datetime - timedelta(hours=24)
+        target_deadline = due_dt_norm - timedelta(hours=24)
         if ref_now >= target_deadline:
             raise InsufficientScheduleWindowError(
                 f"Janela de agendamento insuficiente para tarefa '{task_id}': "
@@ -174,8 +215,8 @@ class DeterministicSchedulerEngine:
         normalized_busy: List[Tuple[datetime, datetime]] = []
         if busy_intervals:
             for b_s, b_e in busy_intervals:
-                bs_norm = b_s if b_s.tzinfo else b_s.replace(tzinfo=tz)
-                be_norm = b_e if b_e.tzinfo else b_e.replace(tzinfo=tz)
+                bs_norm = b_s.replace(tzinfo=tz) if b_s.tzinfo is None else b_s.astimezone(tz)
+                be_norm = b_e.replace(tzinfo=tz) if b_e.tzinfo is None else b_e.astimezone(tz)
                 normalized_busy.append((bs_norm, be_norm))
 
         merged_busy = merge_busy_intervals(normalized_busy)

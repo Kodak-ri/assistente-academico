@@ -1,9 +1,12 @@
+import asyncio
+import inspect
 import io
 import json
 import logging
+import math
 import os
 from datetime import datetime, timezone
-from typing import Union, Tuple, Optional, Callable
+from typing import Union, Tuple, Optional, Callable, Any
 
 import pymupdf
 from sqlalchemy.orm import Session
@@ -14,7 +17,7 @@ from backend.app.models.schemas import SemanticTaskEvaluation, TaskEffortCalcula
 logger = logging.getLogger("academic_platform.document_analyzer")
 
 # Hook global configurável para alertas prioritários (ntfy/webhooks)
-_priority_alert_hook: Optional[Callable[[str, str], None]] = None
+_priority_alert_hook: Optional[Callable[[str, str], Any]] = None
 
 
 def default_priority_alert_hook(task_title: str, reason: str) -> None:
@@ -22,15 +25,24 @@ def default_priority_alert_hook(task_title: str, reason: str) -> None:
     logger.warning(f"[ALERTA PRIORITÁRIO - TRABALHO EM GRUPO] Tarefa: '{task_title}' | Detalhes: {reason}")
 
 
-def set_priority_alert_hook(hook: Optional[Callable[[str, str], None]]) -> None:
+def set_priority_alert_hook(hook: Optional[Callable[[str, str], Any]]) -> None:
     """Define um hook customizado para disparos de alerta prioritário."""
     global _priority_alert_hook
     _priority_alert_hook = hook
 
 
-def get_priority_alert_hook() -> Callable[[str, str], None]:
+def get_priority_alert_hook() -> Callable[[str, str], Any]:
     """Retorna o hook configurado ou o callback padrão."""
     return _priority_alert_hook or default_priority_alert_hook
+
+
+def _dispatch_coro_safely(coro: Any) -> None:
+    """Executa ou agenda uma corrotina de forma segura a partir de contexto síncrono ou assíncrono."""
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(coro)
+    except RuntimeError:
+        asyncio.run(coro)
 
 
 def extract_pdf_info_in_memory(pdf_source: Union[bytes, io.BytesIO]) -> Tuple[int, str]:
@@ -45,15 +57,14 @@ def extract_pdf_info_in_memory(pdf_source: Union[bytes, io.BytesIO]) -> Tuple[in
     else:
         raise ValueError("pdf_source deve ser bytes ou io.BytesIO")
 
-    doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
-    page_count = len(doc)
-
     extracted_pages = []
-    # Extrai o texto integral das duas primeiras páginas
-    for page_idx in range(min(2, page_count)):
-        page_text = doc[page_idx].get_text()
-        if page_text:
-            extracted_pages.append(page_text.strip())
+    with pymupdf.open(stream=pdf_bytes, filetype="pdf") as doc:
+        page_count = len(doc)
+        # Extrai o texto integral das duas primeiras páginas
+        for page_idx in range(min(2, page_count)):
+            page_text = doc[page_idx].get_text()
+            if page_text:
+                extracted_pages.append(page_text.strip())
 
     combined_text = "\n\n--- PÁGINA SEGUINTE ---\n\n".join(extracted_pages)
     return page_count, combined_text
@@ -65,23 +76,23 @@ def calculate_task_effort(
 ) -> TaskEffortCalculation:
     """Calcula o tempo total estimado usando a fórmula matemática especificada na SPEC-001:
     
-    t_base = 3.0 minutos por página
-    lambda_idioma = 1.35 se is_foreign_language == True senão 1.0
-    kappa_densidade em [1.0, 2.2]
-    T_leitura = round(N_paginas * t_base * kappa_densidade * lambda_idioma)
-    T_total = T_leitura + T_producao
+    t_base = 3.5 minutos por página
+    gamma_lang = 1.4 se is_foreign_language == True senão 1.0
+    lexical_density em [1.0, 2.2]
+    T_leitura = math.ceil(P_total * 3.5 * lexical_density * gamma_lang)
+    T_total = T_leitura + T_prod
     """
-    t_base = 3.0
+    t_base = 3.5
 
     # Clamp numérico determinístico sobre lexical_density em [1.0, 2.2]
     raw_kappa = float(evaluation.lexical_density)
     kappa_densidade = max(1.0, min(2.2, raw_kappa))
 
-    # Penalização de língua estrangeira
-    lambda_idioma = 1.35 if evaluation.is_foreign_language else 1.0
+    # Penalização de língua estrangeira (gamma_lang)
+    gamma_lang = 1.4 if evaluation.is_foreign_language else 1.0
 
-    # Cálculo estrito do tempo de leitura arredondado
-    t_leitura = round(page_count * t_base * kappa_densidade * lambda_idioma)
+    # Cálculo estrito do tempo de leitura com teto inteiro (math.ceil)
+    t_leitura = math.ceil(page_count * t_base * kappa_densidade * gamma_lang)
 
     # Tempo total
     t_total = t_leitura + int(evaluation.production_time_min)
@@ -101,7 +112,7 @@ def calculate_task_effort(
 def evaluate_task_with_gemini(
     task_title: str,
     document_text: str,
-    gemini_client=None,
+    gemini_client: Any = None,
 ) -> SemanticTaskEvaluation:
     """Submete o título da tarefa e as 2 primeiras páginas do PDF ao modelo Gemini (gemini-2.5-flash)
     via SDK google-genai com Structured Outputs.
@@ -151,9 +162,10 @@ def process_document_and_persist(
     due_datetime: datetime,
     file_id: str,
     db_session: Session,
-    gemini_client=None,
-    alert_hook: Optional[Callable[[str, str], None]] = None,
+    gemini_client: Any = None,
+    alert_hook: Optional[Callable[[str, str], Any]] = None,
     custom_evaluation: Optional[SemanticTaskEvaluation] = None,
+    notifier: Any = None,
 ) -> TaskEffortCalculation:
     """Fluxo unificado:
     1. Leitura binária em memória do PDF com PyMuPDF.
@@ -174,7 +186,18 @@ def process_document_and_persist(
     # Disparo do alerta prioritário se group_required for verdadeiro
     if effort.group_required:
         hook_to_call = alert_hook or get_priority_alert_hook()
-        hook_to_call(task_title, effort.reasoning_summary)
+        hook_res = hook_to_call(task_title, effort.reasoning_summary)
+        if inspect.isawaitable(hook_res):
+            _dispatch_coro_safely(hook_res)
+        if notifier is not None:
+            coro = notifier.send_group_urgent_alert(
+                task_id=task_id,
+                task_title=task_title,
+                course_name=course_name,
+                due_datetime=due_datetime,
+                reasoning=effort.reasoning_summary,
+            )
+            _dispatch_coro_safely(coro)
 
     # Persistência relacional
     # 1. Course

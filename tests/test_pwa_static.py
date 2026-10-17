@@ -112,3 +112,32 @@ async def test_static_files_mount_and_app_js(pwa_client: AsyncClient):
     response_192 = await pwa_client.get("/static/icons/icon-192.png")
     assert response_192.status_code == 200
     assert response_192.headers.get("content-type") == "image/png"
+
+
+@pytest.mark.anyio
+async def test_all_precache_and_manifest_assets_exist_no_404(pwa_client: AsyncClient):
+    """Regressão QA (Camada E.3): Garante que 100% dos arquivos listados em APP_SHELL_ASSETS
+    do service-worker.js e em icons do manifest.json respondem 200 OK (evitando aborto do cache.addAll)."""
+    import re
+
+    sw_resp = await pwa_client.get("/service-worker.js")
+    assert sw_resp.status_code == 200
+    sw_text = sw_resp.text
+
+    # Extrai array APP_SHELL_ASSETS do service-worker.js
+    match = re.search(r"APP_SHELL_ASSETS\s*=\s*\[(.*?)\]", sw_text, re.DOTALL)
+    assert match is not None
+    assets = re.findall(r"['\"]([^'\"]+)['\"]", match.group(1))
+    assert len(assets) >= 6
+
+    for asset_url in assets:
+        r = await pwa_client.get(asset_url)
+        assert r.status_code == 200, f"Ativo {asset_url} do Service Worker retornou {r.status_code}"
+
+    manifest_resp = await pwa_client.get("/manifest.json")
+    manifest_data = manifest_resp.json()
+    for icon in manifest_data.get("icons", []):
+        icon_src = icon["src"]
+        r_icon = await pwa_client.get(icon_src)
+        assert r_icon.status_code == 200, f"Ícone {icon_src} do manifest.json retornou {r_icon.status_code}"
+

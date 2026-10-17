@@ -244,3 +244,33 @@ def test_calendar_sync_and_persistence_mocked(memory_db):
     assert len(repeat_allocations) == 2
     # call_count continua 2 (não foi chamado novamente)
     assert mock_events.insert.call_count == 2
+
+
+def test_mixed_naive_and_aware_datetimes_no_typeerror():
+    """Regressão QA (Camada C.1): Garante que combinar due_datetime offset-naive (vindo do SQLite)
+    com now offset-aware (UTC) e busy_intervals mistos nunca levanta TypeError."""
+    engine = DeterministicSchedulerEngine(buffer_min=10)
+
+    # due_datetime sem tzinfo (como retornado por colunas DateTime do SQLite)
+    naive_due = datetime(2026, 10, 25, 23, 59, 0)
+    # now com tzinfo=timezone.utc
+    aware_now = datetime(2026, 10, 20, 8, 0, 0, tzinfo=timezone.utc)
+    # intervalos mistos (um naive, um aware)
+    mixed_busy = [
+        (datetime(2026, 10, 20, 8, 30, 0), datetime(2026, 10, 20, 10, 0, 0)),
+        (datetime(2026, 10, 20, 14, 0, 0, tzinfo=timezone.utc), datetime(2026, 10, 20, 15, 0, 0, tzinfo=timezone.utc)),
+    ]
+
+    plan = engine.compute_schedule(
+        task_id="task-tz-mix",
+        est_duration_min=60,
+        due_datetime=naive_due,
+        now=aware_now,
+        busy_intervals=mixed_busy,
+    )
+
+    assert len(plan.blocks) == 1
+    # Deve alocar na manhã do dia 20 após o ocupado das 08:30-10:00 + 10 min buffer -> 10:10 às 11:10
+    assert plan.blocks[0].start_time == datetime(2026, 10, 20, 10, 10, 0, tzinfo=timezone.utc)
+    assert plan.blocks[0].end_time == datetime(2026, 10, 20, 11, 10, 0, tzinfo=timezone.utc)
+

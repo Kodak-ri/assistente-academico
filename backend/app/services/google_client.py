@@ -1,4 +1,6 @@
+import asyncio
 import io
+import logging
 import os
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any
@@ -10,7 +12,10 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 from sqlalchemy.orm import Session
 
+from backend.app.core.config import settings
 from backend.app.models.db_models import Course
+
+logger = logging.getLogger("academic_platform.google_client")
 
 SCOPES = [
     "https://www.googleapis.com/auth/classroom.courses.readonly",
@@ -45,28 +50,56 @@ class GoogleWorkspaceClient:
         credentials_path: Optional[str] = None,
         scopes: Optional[List[str]] = None,
         credentials: Optional[Credentials] = None,
-        classroom_service=None,
-        drive_service=None,
-        calendar_service=None,
+        classroom_service: Any = None,
+        drive_service: Any = None,
+        calendar_service: Any = None,
+        notifier: Any = None,
     ):
-        self.token_path = token_path or os.getenv("GOOGLE_TOKEN_PATH", "token.json")
-        self.credentials_path = credentials_path or os.getenv("GOOGLE_CREDENTIALS_PATH", "credentials.json")
+        self.token_path = (
+            token_path
+            or os.getenv("GOOGLE_TOKEN_PATH")
+            or os.getenv("GOOGLE_TOKEN_FILE")
+            or settings.GOOGLE_TOKEN_FILE
+            or "token.json"
+        )
+        self.credentials_path = (
+            credentials_path
+            or os.getenv("GOOGLE_CREDENTIALS_PATH")
+            or os.getenv("GOOGLE_CREDENTIALS_FILE")
+            or settings.GOOGLE_CREDENTIALS_FILE
+            or "credentials.json"
+        )
         self.scopes = scopes or SCOPES
         self.credentials = credentials
         self.classroom_service = classroom_service
         self.drive_service = drive_service
         self.calendar_service = calendar_service
+        self.notifier = notifier
 
         if self.credentials:
             self._init_services_from_creds()
 
-    def _init_services_from_creds(self):
+    def _init_services_from_creds(self) -> None:
         if not self.classroom_service:
             self.classroom_service = build("classroom", "v1", credentials=self.credentials)
         if not self.drive_service:
             self.drive_service = build("drive", "v3", credentials=self.credentials)
         if not self.calendar_service:
             self.calendar_service = build("calendar", "v3", credentials=self.credentials)
+
+    def _trigger_oauth_emergency_alert(self, error_detail: str) -> None:
+        """Dispara o alerta de emergência OAuth2 via ntfy de forma segura (sync/async)."""
+        try:
+            from backend.app.services.notifier import default_notifier
+            notif = self.notifier or default_notifier
+            coro = notif.send_oauth_emergency_alert(error_detail)
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(coro)
+            except RuntimeError:
+                asyncio.run(coro)
+        except Exception as notify_exc:
+            logger.error("Falha ao disparar alerta de emergência OAuth2: %s", notify_exc)
 
     def authenticate(self) -> None:
         """Carrega credenciais salvas, renova refresh_token preventivamente ou inicia fluxo OAuth2."""
@@ -77,10 +110,15 @@ class GoogleWorkspaceClient:
         if self.token_path and os.path.exists(self.token_path):
             self.credentials = Credentials.from_authorized_user_file(self.token_path, self.scopes)
 
-        # Renovação preventiva do refresh_token
+        # Renovação preventiva do refresh_token com tratamento de falha e alerta ntfy
         if self.credentials and self.credentials.expired and self.credentials.refresh_token:
-            self.credentials.refresh(Request())
-            self._save_token()
+            try:
+                self.credentials.refresh(Request())
+                self._save_token()
+            except Exception as exc:
+                logger.error("Falha na renovação do refresh_token OAuth2: %s", exc)
+                self._trigger_oauth_emergency_alert(str(exc))
+                raise
         elif not self.credentials or not self.credentials.valid:
             if self.credentials_path and os.path.exists(self.credentials_path):
                 flow = InstalledAppFlow.from_client_secrets_file(self.credentials_path, self.scopes)

@@ -187,11 +187,12 @@ def test_in_memory_pdf_reading_no_disk():
 
 def test_effort_calculation_mathematics_and_clamp():
     """Critério 4: Valida o cálculo matemático exato de T_leitura e T_total,
-    incluindo o clamp de kappa_densidade em [1.0, 2.2] e a penalização de 1.35 para língua estrangeira.
+    incluindo o clamp de kappa_densidade em [1.0, 2.2] e a penalização de 1.4 para língua estrangeira:
+    T_total = math.ceil(P_total * 3.5 * lexical_density * gamma_lang) + T_prod
     """
     # Caso 1: Leitura em português, densidade padrão (1.0), sem produção
-    # T_leitura = round(10 * 3.0 * 1.0 * 1.0) = 30
-    # T_total = 30 + 0 = 30
+    # T_leitura = math.ceil(10 * 3.5 * 1.0 * 1.0) = 35
+    # T_total = 35 + 0 = 35
     eval_base = SemanticTaskEvaluation(
         lexical_density=1.0,
         is_foreign_language=False,
@@ -200,8 +201,8 @@ def test_effort_calculation_mathematics_and_clamp():
         reasoning_summary="Artigo padrão em português",
     )
     res_base = calculate_task_effort(page_count=10, evaluation=eval_base)
-    assert res_base.reading_time_min == 30
-    assert res_base.total_duration_min == 30
+    assert res_base.reading_time_min == 35
+    assert res_base.total_duration_min == 35
 
     # Caso 2: Clamp inferior (kappa < 1.0 deve virar 1.0)
     eval_clamp_low = SemanticTaskEvaluation(
@@ -212,12 +213,12 @@ def test_effort_calculation_mathematics_and_clamp():
     )
     res_clamp_low = calculate_task_effort(page_count=10, evaluation=eval_clamp_low)
     assert res_clamp_low.lexical_density == 1.0
-    assert res_clamp_low.reading_time_min == 30
-    assert res_clamp_low.total_duration_min == 40
+    assert res_clamp_low.reading_time_min == 35
+    assert res_clamp_low.total_duration_min == 45
 
     # Caso 3: Clamp superior (kappa > 2.2 deve virar 2.2)
-    # T_leitura = round(10 * 3.0 * 2.2 * 1.0) = round(66.0) = 66
-    # T_total = 66 + 30 = 96
+    # T_leitura = math.ceil(10 * 3.5 * 2.2 * 1.0) = math.ceil(77.0) = 77
+    # T_total = 77 + 30 = 107
     eval_clamp_high = SemanticTaskEvaluation(
         lexical_density=3.5,
         is_foreign_language=False,
@@ -226,12 +227,12 @@ def test_effort_calculation_mathematics_and_clamp():
     )
     res_clamp_high = calculate_task_effort(page_count=10, evaluation=eval_clamp_high)
     assert res_clamp_high.lexical_density == 2.2
-    assert res_clamp_high.reading_time_min == 66
-    assert res_clamp_high.total_duration_min == 96
+    assert res_clamp_high.reading_time_min == 77
+    assert res_clamp_high.total_duration_min == 107
 
-    # Caso 4: Língua estrangeira (lambda = 1.35), kappa = 1.5, N = 8 páginas, T_producao = 20
-    # N * t_base * kappa * lambda = 8 * 3.0 * 1.5 * 1.35 = 48.6 -> round = 49
-    # T_total = 49 + 20 = 69
+    # Caso 4: Língua estrangeira (gamma_lang = 1.4), kappa = 1.5, N = 8 páginas, T_producao = 20
+    # N * 3.5 * kappa * gamma_lang = 8 * 3.5 * 1.5 * 1.4 = 58.8 -> math.ceil = 59
+    # T_total = 59 + 20 = 79
     eval_foreign = SemanticTaskEvaluation(
         lexical_density=1.5,
         is_foreign_language=True,
@@ -239,8 +240,8 @@ def test_effort_calculation_mathematics_and_clamp():
         production_time_min=20,
     )
     res_foreign = calculate_task_effort(page_count=8, evaluation=eval_foreign)
-    assert res_foreign.reading_time_min == 49
-    assert res_foreign.total_duration_min == 69
+    assert res_foreign.reading_time_min == 59
+    assert res_foreign.total_duration_min == 79
 
 
 def test_priority_alert_and_persistence(memory_db):
@@ -336,3 +337,36 @@ def test_no_alert_when_group_not_required(memory_db):
     )
 
     mock_alert_hook.assert_not_called()
+
+
+def test_oauth_refresh_failure_triggers_emergency_alert():
+    """Regressão QA (Camada D.3): Garante que falha na renovação do refresh_token OAuth2
+    aciona imediatamente o alerta de emergência via ntfy."""
+    from unittest.mock import AsyncMock
+
+    mock_creds = MagicMock()
+    mock_creds.valid = False
+    mock_creds.expired = True
+    mock_creds.refresh_token = "mock-refresh-token"
+    mock_creds.refresh.side_effect = RuntimeError("invalid_grant: Token has been expired or revoked")
+
+    mock_notifier = MagicMock()
+    mock_notifier.send_oauth_emergency_alert = AsyncMock(return_value=True)
+
+    client = GoogleWorkspaceClient(
+        token_path="non_existent_token.json",
+        credentials_path="non_existent_creds.json",
+        classroom_service=MagicMock(),
+        drive_service=MagicMock(),
+        calendar_service=MagicMock(),
+        notifier=mock_notifier,
+    )
+    client.credentials = mock_creds
+
+    with pytest.raises(RuntimeError, match="invalid_grant"):
+        client.authenticate()
+
+    mock_notifier.send_oauth_emergency_alert.assert_called_once()
+    call_arg = mock_notifier.send_oauth_emergency_alert.call_args[0][0]
+    assert "invalid_grant" in call_arg
+

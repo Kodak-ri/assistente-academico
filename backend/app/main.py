@@ -29,7 +29,13 @@ logging.basicConfig(
 logger = logging.getLogger("academic_platform.main")
 
 
-async def run_periodic_scan(notifier: Optional[NtfyNotifier] = None) -> None:
+async def run_periodic_scan(
+    notifier: Optional[NtfyNotifier] = None,
+    db_session: Optional[Session] = None,
+    workspace_client: Any = None,
+    gemini_client: Any = None,
+    reference_now: Optional[datetime] = None,
+) -> None:
     """Orquestra o pipeline periódico completo de sincronização e agendamento:
     
     1. Sincroniza turmas e tarefas ativas do Google Classroom via GoogleWorkspaceClient.
@@ -39,26 +45,34 @@ async def run_periodic_scan(notifier: Optional[NtfyNotifier] = None) -> None:
     notif = notifier or default_notifier
     logger.info("Iniciando varredura periódica de sincronização e agendamento.")
 
-    with SessionLocal() as db:
-        workspace_client = None
-        try:
-            from backend.app.services.google_client import get_google_workspace_client
-            workspace_client = get_google_workspace_client()
-        except Exception as exc:
-            logger.debug("Google Workspace client offline: %s", exc)
+    owns_session = db_session is None
+    db = db_session if db_session is not None else SessionLocal()
 
-        if workspace_client and workspace_client.classroom_service:
+    try:
+        ws_client = workspace_client
+        if ws_client is None:
             try:
-                active_courses = workspace_client.filter_active_courses(db_session=db)
+                from backend.app.services.google_client import get_google_workspace_client
+                ws_client = get_google_workspace_client()
+            except Exception as exc:
+                logger.debug("Google Workspace client offline: %s", exc)
+
+        if ws_client and ws_client.classroom_service:
+            try:
+                active_courses = ws_client.filter_active_courses(
+                    db_session=db,
+                    reference_date=reference_now,
+                )
                 for course_info in active_courses:
                     c_id = str(course_info.get("id"))
-                    pdf_items = workspace_client.extract_pdf_attachments(c_id)
+                    pdf_items = ws_client.extract_pdf_attachments(c_id)
                     for item in pdf_items:
                         t_id = str(item.get("work_id"))
                         existing_task = db.query(Task).filter(Task.id == t_id).first()
                         if not existing_task:
-                            due = item.get("due_datetime") or (datetime.now(timezone.utc) + timedelta(days=7))
-                            pdf_bytes = workspace_client.download_drive_pdf_to_memory(item["file_id"])
+                            ref_dt = reference_now or datetime.now(timezone.utc)
+                            due = item.get("due_datetime") or (ref_dt + timedelta(days=7))
+                            pdf_bytes = ws_client.download_drive_pdf_to_memory(item["file_id"])
                             from backend.app.services.document_analyzer import process_document_and_persist
                             effort = process_document_and_persist(
                                 pdf_source=pdf_bytes,
@@ -69,6 +83,7 @@ async def run_periodic_scan(notifier: Optional[NtfyNotifier] = None) -> None:
                                 due_datetime=due,
                                 file_id=item["file_id"],
                                 db_session=db,
+                                gemini_client=gemini_client,
                             )
                             if effort.group_required:
                                 await notif.send_group_urgent_alert(
@@ -82,7 +97,7 @@ async def run_periodic_scan(notifier: Optional[NtfyNotifier] = None) -> None:
                 logger.warning("Erro no processamento periódico do Classroom/Gemini: %s", exc)
 
         # Agendamento de tarefas PENDING no Google Calendar
-        cal_service = workspace_client.calendar_service if workspace_client else None
+        cal_service = ws_client.calendar_service if ws_client else None
         pending_tasks = db.query(Task).filter(Task.status == "PENDING").all()
         for t in pending_tasks:
             try:
@@ -90,16 +105,24 @@ async def run_periodic_scan(notifier: Optional[NtfyNotifier] = None) -> None:
                     db_session=db,
                     task_id=t.id,
                     calendar_service=cal_service,
+                    now=reference_now,
                     force_reallocate=False,
                 )
                 logger.info("Tarefa '%s' agendada com sucesso no pipeline periódico.", t.id)
             except Exception as exc:
                 logger.warning("Não foi possível agendar tarefa '%s' no ciclo atual: %s", t.id, exc)
+    finally:
+        if owns_session:
+            db.close()
 
     logger.info("Varredura periódica concluída com sucesso.")
 
 
-async def run_daily_briefing(notifier: Optional[NtfyNotifier] = None) -> None:
+async def run_daily_briefing(
+    notifier: Optional[NtfyNotifier] = None,
+    db_session: Optional[Session] = None,
+    reference_date: Optional[date] = None,
+) -> None:
     """Dispara o despacho matinal diário das 07:30."""
     notif = notifier or default_notifier
     app_tz: tzinfo
@@ -108,13 +131,16 @@ async def run_daily_briefing(notifier: Optional[NtfyNotifier] = None) -> None:
     except Exception:
         app_tz = timezone.utc
 
-    today_date = datetime.now(app_tz).date()
+    today_date = reference_date or datetime.now(app_tz).date()
     day_start = datetime.combine(today_date, time.min)
     day_end = datetime.combine(today_date, time.max)
 
     logger.info("Preparando despacho diário das 07:30 para a data %s.", today_date.isoformat())
 
-    with SessionLocal() as db:
+    owns_session = db_session is None
+    db = db_session if db_session is not None else SessionLocal()
+
+    try:
         # Alocações do dia
         allocations_query = (
             db.query(CalendarAllocation, Task, Course)
@@ -134,21 +160,29 @@ async def run_daily_briefing(notifier: Optional[NtfyNotifier] = None) -> None:
             for alloc, t, c in allocations_query
         ]
 
-        # Fila de leituras pendentes
-        pending_query = (
-            db.query(Task, Material)
-            .outerjoin(Material, Material.course_id == Task.course_id)
+        # Fila de leituras pendentes (sem produto cartesiano com múltiplos materiais)
+        pending_tasks = (
+            db.query(Task)
             .filter(Task.status.in_(["PENDING", "SCHEDULED"]))
             .order_by(Task.due_datetime.asc())
             .all()
         )
-        reading_queue: List[Dict[str, Any]] = [
-            {
-                "title": t.title,
-                "page_count": m.page_count if m else 0,
-            }
-            for t, m in pending_query
-        ]
+        reading_queue: List[Dict[str, Any]] = []
+        for t in pending_tasks:
+            m = (
+                db.query(Material)
+                .filter(Material.course_id == t.course_id, Material.title == t.title)
+                .first()
+                or db.query(Material)
+                .filter(Material.course_id == t.course_id)
+                .first()
+            )
+            reading_queue.append(
+                {
+                    "title": t.title,
+                    "page_count": m.page_count if m else 0,
+                }
+            )
 
         # Rotinas domésticas
         routines = db.query(DomesticRoutine).all()
@@ -165,6 +199,9 @@ async def run_daily_briefing(notifier: Optional[NtfyNotifier] = None) -> None:
                 "name": r.name,
                 "is_completed_today": is_completed,
             })
+    finally:
+        if owns_session:
+            db.close()
 
     await notif.send_daily_briefing(
         date_str=today_date.strftime("%d/%m/%Y"),

@@ -243,16 +243,23 @@ def get_daily_dashboard(
 
     # 2. Fila de leitura ordenada (tarefas PENDING e SCHEDULED)
     pending_tasks_query = (
-        db.query(Task, Course, Material)
+        db.query(Task, Course)
         .outerjoin(Course, Task.course_id == Course.id)
-        .outerjoin(Material, Material.course_id == Task.course_id)
         .filter(Task.status.in_(["PENDING", "SCHEDULED"]))
         .order_by(Task.due_datetime.asc())
         .all()
     )
 
     reading_queue: List[DashboardReadingItem] = []
-    for t, c, m in pending_tasks_query:
+    for t, c in pending_tasks_query:
+        m = (
+            db.query(Material)
+            .filter(Material.course_id == t.course_id, Material.title == t.title)
+            .first()
+            or db.query(Material)
+            .filter(Material.course_id == t.course_id)
+            .first()
+        )
         reading_queue.append(
             DashboardReadingItem(
                 task_id=t.id,

@@ -455,17 +455,93 @@ async def test_healthcheck_endpoint(async_client: AsyncClient):
 
 
 @pytest.mark.anyio
-async def test_lifespan_initialization_and_shutdown():
-    """Valida que o lifespan inicializa o SQLite e registra os jobs no AsyncIOScheduler."""
-    async with lifespan(app):
-        scheduler = getattr(app.state, "scheduler", None)
-        assert scheduler is not None
-        assert scheduler.running is True
+async def test_lifespan_initialization_and_shutdown(memory_db):
+    """Valida que o lifespan inicializa o SQLite e registra os jobs no AsyncIOScheduler sem sujar o disco."""
+    with patch("backend.app.main.init_db") as mock_init_db, \
+         patch("backend.app.main.SessionLocal", return_value=memory_db):
+        async with lifespan(app):
+            mock_init_db.assert_called_once()
+            scheduler = getattr(app.state, "scheduler", None)
+            assert scheduler is not None
+            assert scheduler.running is True
 
-        job_ids = [j.id for j in scheduler.get_jobs()]
-        # Confirma registro dos jobs da SPEC-003
-        assert "periodic_scan" in job_ids
-        assert "daily_briefing" in job_ids
+            job_ids = [j.id for j in scheduler.get_jobs()]
+            # Confirma registro dos jobs da SPEC-003
+            assert "periodic_scan" in job_ids
+            assert "daily_briefing" in job_ids
 
-    # Confirma shutdown gracioso do scheduler após saída do contexto
-    assert scheduler.running is False
+        # Confirma shutdown gracioso do scheduler após saída do contexto
+        assert scheduler.running is False
+
+
+@pytest.mark.anyio
+async def test_dashboard_no_duplicate_tasks_with_multiple_course_materials(async_client: AsyncClient, memory_db):
+    """Regressão QA: Garante que uma disciplina com múltiplos materiais não duplica tarefas na reading_queue."""
+    c = Course(id="c-multi", name="Arquitetura de Computadores", is_active=True)
+    m1 = Material(id="mat-1", course_id="c-multi", title="Leitura Cap 1: Pipeline", page_count=20)
+    m2 = Material(id="mat-2", course_id="c-multi", title="Leitura Cap 2: Cache", page_count=35)
+    t1 = Task(
+        id="t-pipe",
+        course_id="c-multi",
+        title="Leitura Cap 1: Pipeline",
+        due_datetime=datetime(2026, 10, 28, 23, 59, tzinfo=timezone.utc),
+        est_duration_min=70,
+        status="PENDING",
+    )
+    t2 = Task(
+        id="t-cache",
+        course_id="c-multi",
+        title="Leitura Cap 2: Cache",
+        due_datetime=datetime(2026, 10, 29, 23, 59, tzinfo=timezone.utc),
+        est_duration_min=120,
+        status="SCHEDULED",
+    )
+    memory_db.add_all([c, m1, m2, t1, t2])
+    memory_db.commit()
+
+    resp = await async_client.get("/api/dashboard/daily?date=2026-10-21")
+    assert resp.status_code == 200
+    queue = resp.json()["reading_queue"]
+    assert len(queue) == 2
+    assert queue[0]["task_id"] == "t-pipe"
+    assert queue[0]["page_count"] == 20
+    assert queue[1]["task_id"] == "t-cache"
+    assert queue[1]["page_count"] == 35
+
+
+@pytest.mark.anyio
+async def test_snooze_failure_preserves_existing_allocations_atomicity(async_client: AsyncClient, memory_db):
+    """Regressão QA (Camada D.2): Garante que falha 409 no snooze preserva intactas as alocações prévias no SQLite."""
+    now_utc = datetime(2026, 10, 20, 10, 0, tzinfo=timezone.utc)
+    c = Course(id="c-atom", name="Sistemas Operacionais", is_active=True)
+    t = Task(
+        id="t-atom-300",
+        course_id="c-atom",
+        title="Relatório de Kernel",
+        due_datetime=now_utc + timedelta(hours=24, minutes=30),
+        est_duration_min=60,
+        status="SCHEDULED",
+    )
+    existing_alloc = CalendarAllocation(
+        task_id="t-atom-300",
+        gcal_event_id="gcal-original-keep",
+        start_time=now_utc - timedelta(hours=1),
+        end_time=now_utc,
+    )
+    memory_db.add_all([c, t, existing_alloc])
+    memory_db.commit()
+
+    with patch("backend.app.api.endpoints.datetime") as mock_dt:
+        mock_dt.now.return_value = now_utc
+        mock_dt.combine = datetime.combine
+        mock_dt.fromisoformat = datetime.fromisoformat
+        resp = await async_client.post("/api/tasks/t-atom-300/snooze?min=60")
+
+    assert resp.status_code == 409
+    memory_db.expire_all()
+    preserved = memory_db.query(CalendarAllocation).filter(CalendarAllocation.task_id == "t-atom-300").all()
+    assert len(preserved) == 1
+    assert preserved[0].gcal_event_id == "gcal-original-keep"
+    db_task = memory_db.query(Task).filter(Task.id == "t-atom-300").first()
+    assert db_task.status == "SCHEDULED"
+

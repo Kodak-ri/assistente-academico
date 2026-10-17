@@ -1,7 +1,7 @@
 import math
 import logging
 from datetime import datetime, timezone, timedelta
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Any
 
 from sqlalchemy.orm import Session
 
@@ -17,7 +17,7 @@ logger = logging.getLogger("academic_platform.calendar_sync")
 
 
 def fetch_freebusy_intervals(
-    calendar_service,
+    calendar_service: Any,
     start_dt: datetime,
     end_dt: datetime,
     calendar_id: str = "primary",
@@ -26,9 +26,12 @@ def fetch_freebusy_intervals(
     if not calendar_service:
         return []
 
+    s_norm = start_dt.replace(tzinfo=timezone.utc) if start_dt.tzinfo is None else start_dt.astimezone(timezone.utc)
+    e_norm = end_dt.replace(tzinfo=timezone.utc) if end_dt.tzinfo is None else end_dt.astimezone(timezone.utc)
+
     # Normalização em ISO 8601 RFC3339
-    time_min = start_dt.astimezone(timezone.utc).isoformat()
-    time_max = end_dt.astimezone(timezone.utc).isoformat()
+    time_min = s_norm.isoformat()
+    time_max = e_norm.isoformat()
 
     body = {
         "timeMin": time_min,
@@ -52,7 +55,7 @@ def fetch_freebusy_intervals(
 
 
 def create_gcal_study_event(
-    calendar_service,
+    calendar_service: Any,
     task_title: str,
     block: ScheduledBlock,
     material: Optional[Material] = None,
@@ -81,14 +84,17 @@ def create_gcal_study_event(
             drive_url = f"https://drive.google.com/file/d/{material.id}/view"
             description_parts.append(f"Material no Google Drive: {drive_url}")
 
+    b_start = block.start_time.replace(tzinfo=timezone.utc) if block.start_time.tzinfo is None else block.start_time.astimezone(timezone.utc)
+    b_end = block.end_time.replace(tzinfo=timezone.utc) if block.end_time.tzinfo is None else block.end_time.astimezone(timezone.utc)
+
     event_body = {
         "summary": summary,
         "description": "\n".join(description_parts),
         "start": {
-            "dateTime": block.start_time.astimezone(timezone.utc).isoformat(),
+            "dateTime": b_start.isoformat(),
         },
         "end": {
-            "dateTime": block.end_time.astimezone(timezone.utc).isoformat(),
+            "dateTime": b_end.isoformat(),
         },
         "reminders": {
             "useDefault": False,
@@ -103,13 +109,13 @@ def create_gcal_study_event(
         body=event_body,
     ).execute()
 
-    return created_event.get("id", f"mock-event-{block.task_id}-{block.block_index}")
+    return str(created_event.get("id", f"mock-event-{block.task_id}-{block.block_index}"))
 
 
 def sync_task_to_google_calendar(
     db_session: Session,
     task_id: str,
-    calendar_service=None,
+    calendar_service: Any = None,
     now: Optional[datetime] = None,
     calendar_id: str = "primary",
     force_reallocate: bool = False,
@@ -120,7 +126,7 @@ def sync_task_to_google_calendar(
     3. Consulta freebusy no Google Calendar para coletar intervalos ocupados.
     4. Executa o scheduler_engine linear determinístico.
     5. Inscreve os eventos criados no Google Calendar.
-    6. Persiste as alocações em calendar_allocations e atualiza task.status para 'SCHEDULED'.
+    6. Persiste as alocações em calendar_allocations e atualiza task.status para 'SCHEDULED' de forma atômica.
     """
     task = db_session.query(Task).filter(Task.id == task_id).first()
     if not task:
@@ -137,14 +143,8 @@ def sync_task_to_google_calendar(
         logger.info(f"Tarefa '{task_id}' já possui {len(existing_allocations)} alocações. Idempotência preservada.")
         return existing_allocations
 
-    if existing_allocations and force_reallocate:
-        # Remove alocações anteriores em caso de realocação forçada
-        for alloc in existing_allocations:
-            db_session.delete(alloc)
-        db_session.commit()
-
     # -------------------------------------------------------------------------
-    # Consulta de Ocupação (Freebusy)
+    # Consulta de Ocupação (Freebusy + Alocações Locais de Outras Tarefas)
     # -------------------------------------------------------------------------
     ref_now = now or datetime.now(timezone.utc)
     if ref_now.tzinfo is None:
@@ -158,15 +158,26 @@ def sync_task_to_google_calendar(
     if calendar_service:
         t_alvo_fim = target_deadline - timedelta(hours=24)
         if ref_now < t_alvo_fim:
-            busy_intervals = fetch_freebusy_intervals(
-                calendar_service=calendar_service,
-                start_dt=ref_now,
-                end_dt=t_alvo_fim,
-                calendar_id=calendar_id,
+            busy_intervals.extend(
+                fetch_freebusy_intervals(
+                    calendar_service=calendar_service,
+                    start_dt=ref_now,
+                    end_dt=t_alvo_fim,
+                    calendar_id=calendar_id,
+                )
             )
 
+    # Inclui blocos já alocados no banco para outras tarefas (com a margem de buffer consumida)
+    other_allocations = db_session.query(CalendarAllocation).filter(
+        CalendarAllocation.task_id != task_id
+    ).all()
+    for oa in other_allocations:
+        oa_s = oa.start_time.replace(tzinfo=timezone.utc) if oa.start_time.tzinfo is None else oa.start_time.astimezone(timezone.utc)
+        oa_e = oa.end_time.replace(tzinfo=timezone.utc) if oa.end_time.tzinfo is None else oa.end_time.astimezone(timezone.utc)
+        busy_intervals.append((oa_s - timedelta(minutes=10), oa_e + timedelta(minutes=10)))
+
     # -------------------------------------------------------------------------
-    # Execução do Motor Determinístico de Agendamento
+    # Execução do Motor Determinístico de Agendamento (antes de alterar o DB)
     # -------------------------------------------------------------------------
     engine = DeterministicSchedulerEngine(buffer_min=10)
     plan: SchedulePlan = engine.compute_schedule(
@@ -177,12 +188,31 @@ def sync_task_to_google_calendar(
         busy_intervals=busy_intervals,
     )
 
-    # Busca material associado para enriquecer o evento
-    material = db_session.query(Material).filter(Material.course_id == task.course_id).first()
+    # Busca material associado (prioriza correspondência exata de título na disciplina)
+    material = (
+        db_session.query(Material)
+        .filter(Material.course_id == task.course_id, Material.title == task.title)
+        .first()
+        or db_session.query(Material)
+        .filter(Material.course_id == task.course_id)
+        .first()
+    )
 
     # -------------------------------------------------------------------------
-    # Inscrição de Eventos no Google Calendar & Persistência Atômica no SQLite
+    # Transação Atômica: Remove Alocações Antigas (se force_reallocate) e Cria Novas
     # -------------------------------------------------------------------------
+    if existing_allocations and force_reallocate:
+        for alloc in existing_allocations:
+            if calendar_service and alloc.gcal_event_id:
+                try:
+                    calendar_service.events().delete(
+                        calendarId=calendar_id,
+                        eventId=alloc.gcal_event_id,
+                    ).execute()
+                except Exception as del_exc:
+                    logger.debug("Aviso ao remover evento antigo '%s': %s", alloc.gcal_event_id, del_exc)
+            db_session.delete(alloc)
+
     created_allocations: List[CalendarAllocation] = []
 
     for block in plan.blocks:
@@ -207,7 +237,7 @@ def sync_task_to_google_calendar(
         db_session.add(allocation)
         created_allocations.append(allocation)
 
-    # Atualiza o status da tarefa para SCHEDULED
+    # Atualiza o status da tarefa para SCHEDULED e efetiva commit único
     task.status = "SCHEDULED"
     db_session.commit()
 
