@@ -12,8 +12,10 @@ token.json
 *.pem
 .env
 .env.*
+!.env.example
 
-# Bancos de dados e logs locais
+# Bancos de dados, dados locais e logs
+data/
 *.db
 *.sqlite3
 *.log

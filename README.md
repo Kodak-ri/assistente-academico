@@ -33,53 +33,55 @@ Plataforma autônoma headless e interface visual progressiva (PWA) para gestão 
 
 ```mermaid
 flowchart TD
-    subgraph Ingestao["1. Ingestão & Triagem Tripartida (SPEC-001)"]
-        GC[Google Classroom API] -->|courses.list| F1["Filtro 1: Criação < 180 dias"]
-        F1 --> F2["Filtro 2: is_active != False"]
-        F2 --> F3["Filtro 3: Atividade Mural/Tarefas < 45 dias"]
-        F3 -->|Turmas Vigentes| GD[Google Drive API]
-        GD -->|drive.files.get_media| RAM["io.BytesIO (Zero disco)"]
-        RAM --> FITZ["PyMuPDF (Extrato Textual & Contagem)"]
+    subgraph Ingestao["1. Ingestao e Triagem Tripartida (SPEC-001)"]
+        GC["Google Classroom API"] -->|"courses.list"| F1["Filtro 1: Criacao recente (menos de 180 dias)"]
+        F1 --> F2["Filtro 2: Turma ativa (is_active != False)"]
+        F2 --> F3["Filtro 3: Atividade recente (menos de 45 dias)"]
+        F3 -->|"Turmas Vigentes"| GD["Google Drive API"]
+        GD -->|"drive.files.get_media"| RAM["io.BytesIO (Extracao em RAM sem disco)"]
+        RAM --> FITZ["PyMuPDF (Extrato Textual e Contagem de Paginas)"]
         FITZ --> GENAI["Gemini 2.5 Flash (Structured Outputs)"]
-        GENAI --> FORM["Fórmula de Esforço Temporal & Clamp"]
+        GENAI --> FORM["Formula de Esforco Temporal e Clamp"]
     end
 
-    subgraph Persistencia["2. Persistência Relacional"]
+    subgraph Persistencia["2. Persistencia Relacional"]
         FORM --> DB[("SQLite (SQLAlchemy 2.0)")]
-        DB <--> DB_MODELS["courses, materials, tasks,<br/>calendar_allocations, domestic_routines"]
+        DB --- DB_MODELS["Tabelas: courses, materials, tasks, calendar_allocations, domestic_routines"]
     end
 
-    subgraph Agendador["3. Motor Linear Determinístico & Calendar (SPEC-002)"]
+    subgraph Agendador["3. Motor Linear Deterministico e Calendar (SPEC-002)"]
         DB --> SCHED_ENG["Motor de Agendamento Linear"]
-        SCHED_ENG --> CHUNK["Fracionamento Cognitivo (<=90min)"]
-        CHUNK --> WIN["Recorte Janelas (08:30-11:30 | 14:00-21:00)"]
-        WIN --> BUF["Buffer de Transição (+10min antes/depois)"]
-        BUF --> MARG["Margem Antivéspera (Término <= Due - 24h)"]
-        MARG --> GCAL[Google Calendar API]
+        SCHED_ENG --> CHUNK["Fracionamento Cognitivo (Blocos de ate 90 min)"]
+        CHUNK --> WIN["Recorte em Janelas Uteis (08:30-11:30 e 14:00-21:00)"]
+        WIN --> BUF["Buffer de Transicao (10 min de resguardo antes e depois)"]
+        BUF --> MARG["Margem Antivespera (Termino ate 24h antes do prazo final)"]
+        MARG --> GCAL["Google Calendar API"]
         GCAL --> DB
     end
 
-    subgraph Backend["4. Núcleo FastAPI & APScheduler (SPEC-003)"]
+    subgraph Backend["4. Nucleo FastAPI e APScheduler (SPEC-003)"]
         FASTAPI["FastAPI Core (lifespan)"]
         SCHED["APScheduler (AsyncIOScheduler)"]
         FASTAPI --- SCHED
-        SCHED -->|A cada 2h| SCAN["Varredura Periódica Classroom"]
-        SCHED -->|07:30 Diário| BRIEF["Despacho Matinal Diário"]
-        SCHED -->|Crontab Individual| CRONS["Rotinas Domésticas"]
-        SCAN & BRIEF & CRONS --> NTFY["Serviço ntfy (Priority 5, Retry Backoff)"]
-        NTFY --> NOTIF["Notificação Smartphone (ntfy.sh)"]
+        SCHED -->|"Intervalo 2h"| SCAN["Varredura Periodica Classroom e Gemini"]
+        SCHED -->|"07:30 Diario"| BRIEF["Despacho Matinal Diario"]
+        SCHED -->|"Crontab"| CRONS["Rotinas Domesticas"]
+        SCAN --> NTFY["Servico ntfy (Prioridade 5 e Retry Backoff)"]
+        BRIEF --> NTFY
+        CRONS --> NTFY
+        NTFY --> NOTIF["Notificacao Interativa Mobile (ntfy.sh)"]
     end
 
     subgraph PWA["5. Painel Visual PWA Mobile-First (SPEC-004)"]
-        FASTAPI -->|GET /, /manifest.json, /service-worker.js, /static/*| CLIENT["Navegador Móvel / A2HS Standalone"]
-        CLIENT --> SW["Service Worker (Cache Híbrido)"]
-        SW -->|Stale-While-Revalidate| SHELL["App Shell (index.html, app.js, icons)"]
-        SW -->|Network-First| DASH_API["GET /api/dashboard/daily"]
-        CLIENT --> OPTIMISTIC["Mutações Otimistas (app.js)"]
-        OPTIMISTIC -->|POST /api/tasks/{id}/complete| FASTAPI
-        OPTIMISTIC -->|POST /api/tasks/{id}/snooze?min=60| FASTAPI
-        OPTIMISTIC -->|POST /api/routines/{id}/complete| FASTAPI
-        OPTIMISTIC -.->|Erro / 409 Conflict| ROLLBACK["Rollback Atômico no DOM & Toast"]
+        FASTAPI -->|"App Shell e Static"| CLIENT["Navegador Movel / PWA Standalone"]
+        CLIENT --> SW["Service Worker (Cache Hibrido)"]
+        SW -->|"Stale-While-Revalidate"| SHELL["App Shell (index.html, app.js, icons)"]
+        SW -->|"Network-First"| DASH_API["GET /api/dashboard/daily"]
+        CLIENT --> OPTIMISTIC["Mutacoes Otimistas no DOM (app.js)"]
+        OPTIMISTIC -->|"POST /complete"| FASTAPI
+        OPTIMISTIC -->|"POST /snooze"| FASTAPI
+        OPTIMISTIC -->|"POST /routines"| FASTAPI
+        OPTIMISTIC -.->|"Rollback em caso de erro"| ROLLBACK["Rollback Instantaneo no DOM e Toast"]
     end
 ```
 
@@ -92,16 +94,16 @@ flowchart TD
 - **Contratos e Schemas (`backend/app/models/schemas.py`):** Modelos Pydantic v2 com validação estrita, clamp numérico automático de densidade textual ($\kappa_{\text{densidade}} \in [1.0, 2.2]$) e configuração `ConfigDict(from_attributes=True)`.
 - **Conector Google Workspace (`backend/app/services/google_client.py`):**
   - Autenticação OAuth2 com renovação preventiva de `refresh_token`.
-  - **Triagem Tripartida:** Isola as 10 turmas vigentes descartando turmas antigas (> 180 dias sem flag ativa prévia), turmas com bloqueio local explícito (`is_active=False`) e turmas sem publicações recentes (> 45 dias sem atividade no mural/tarefas).
+  - **Triagem Tripartida:** Isola as turmas vigentes descartando turmas antigas (> 180 dias sem flag ativa prévia), turmas com bloqueio local explícito (`is_active=False`) e turmas sem publicações recentes (> 45 dias sem atividade no mural/tarefas).
   - Download binário direto para `io.BytesIO` em RAM sem gravação de arquivos temporários em disco.
 - **Analisador de Documentos (`backend/app/services/document_analyzer.py`):**
-  - Leitura em memória de PDFs com PyMuPDF (`fitz`), capturando número total de páginas ($N_{\text{páginas}}$) e o extrato integral das duas primeiras páginas.
+  - Leitura em memória de PDFs com PyMuPDF (`fitz`), capturando número total de páginas ($N_{\text{paginas}}$) e o extrato integral das duas primeiras páginas.
   - Avaliação semântica via SDK oficial `google-genai` com Structured Outputs (`SemanticTaskEvaluation`).
   - Motor determinístico de cálculo de esforço temporal:
-    $$t_{\text{base}} = 3.0 \text{ min/página}$$
-    $$\lambda_{\text{idioma}} = 1.35 \text{ (se estrangeiro) senão } 1.0$$
-    $$T_{\text{leitura}} = \text{round}(N_{\text{páginas}} \times t_{\text{base}} \times \kappa_{\text{densidade}} \times \lambda_{\text{idioma}})$$
-    $$T_{\text{total}} = T_{\text{leitura}} + T_{\text{produção}}$$
+    $$t_{\text{base}} = 3.0 \text{ min/pagina}$$
+    $$\lambda_{\text{idioma}} = 1.35 \text{ (se estrangeiro) senao } 1.0$$
+    $$T_{\text{leitura}} = \text{round}(N_{\text{paginas}} \times t_{\text{base}} \times \kappa_{\text{densidade}} \times \lambda_{\text{idioma}})$$
+    $$T_{\text{total}} = T_{\text{leitura}} + T_{\text{producao}}$$
   - Disparo de hook configurável para emissão de alertas prioritários quando `group_required == True`.
 
 ### Fase 2 — Motor de Agendamento Linear & Sincronização Google Calendar (SPEC-002)
@@ -238,7 +240,22 @@ cd /work/assistente-academico
 ```
 Acesse a aplicação no navegador móvel ou desktop em: `http://localhost:8000/`.
 
-### 6.2 Instalação no Celular (Add to Home Screen - A2HS)
+### 6.2 Execução com Docker & Docker Compose
+A aplicação possui imagem otimizada não-root com healthcheck para execução local ou deploy via Komodo / OMV:
+
+```bash
+# 1. Copie o arquivo de variáveis de ambiente
+cp .env.example .env
+
+# 2. Suba o container com build automático
+docker compose up -d --build
+
+# 3. Verifique os logs e a integridade da aplicação
+docker compose ps
+docker compose logs -f
+```
+
+### 6.3 Instalação no Celular (Add to Home Screen - A2HS)
 - **Android (Google Chrome):**
   1. Abra `http://<IP_OU_HOST>:8000/`.
   2. O navegador exibirá a barra "Adicionar AcadAgent à tela inicial" ou acesse o menu de 3 pontos e toque em **"Instalar aplicativo"**.

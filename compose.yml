@@ -1,0 +1,27 @@
+name: assistente-academico
+
+services:
+  assistente-academico:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: assistente-academico
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - TIMEZONE=America/Sao_Paulo
+      - DATABASE_URL=sqlite:////app/data/academic_assistant.db
+      - PUBLIC_API_BASE_URL=http://localhost:8000
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./credentials.json:/app/credentials.json:ro
+      - ./token.json:/app/token.json
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
