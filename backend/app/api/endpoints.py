@@ -305,3 +305,31 @@ def get_daily_dashboard(
         reading_queue=reading_queue,
         domestic_routines=domestic_routines_list,
     )
+
+
+@router.post(
+    "/notifications/test",
+    summary="Disparar notificação de teste/boas-vindas para o ntfy",
+)
+async def test_notification() -> dict:
+    """Dispara uma notificação de teste e boas-vindas para validar a entrega no app ntfy."""
+    from backend.app.services.notifier import default_notifier
+    msg = (
+        "🎉 Assistente Acadêmico Conectado com Sucesso!\n\n"
+        "• Google Classroom: Conectado e sincronizado\n"
+        "• Google Drive: Leitura de PDFs ativa\n"
+        "• Google Calendar: Blocos de estudo alocados\n"
+        "• Google Gemini: gemini-3.8-flash operacional\n\n"
+        "Seu canal de avisos e botões interativos está pronto para o semestre!"
+    )
+    ok = await default_notifier.send_notification(
+        message=msg,
+        title="👋 Bem-vindo ao Assistente Acadêmico!",
+        priority=4,
+        tags=["tada", "mortar_board", "sparkles"],
+        actions=[
+            f"view, Abrir Painel, {default_notifier.public_api_base_url}"
+        ]
+    )
+    return {"status": "success" if ok else "failed", "delivered": ok}
+
