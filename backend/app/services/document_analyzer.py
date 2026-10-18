@@ -11,6 +11,7 @@ from typing import Union, Tuple, Optional, Callable, Any
 import pymupdf
 from sqlalchemy.orm import Session
 
+from backend.app.core.config import settings
 from backend.app.models.db_models import Course, Material, Task
 from backend.app.models.schemas import SemanticTaskEvaluation, TaskEffortCalculation
 
@@ -119,7 +120,8 @@ def evaluate_task_with_gemini(
     """
     if gemini_client is None:
         from google import genai
-        gemini_client = genai.Client()
+        api_key = settings.GEMINI_API_KEY or os.getenv("GEMINI_API_KEY")
+        gemini_client = genai.Client(api_key=api_key)
 
     prompt = (
         f"Você é um analisador semântico de esforço académico.\n"
