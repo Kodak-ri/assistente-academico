@@ -70,29 +70,35 @@ async def run_periodic_scan(
                         t_id = str(item.get("work_id"))
                         existing_task = db.query(Task).filter(Task.id == t_id).first()
                         if not existing_task:
-                            ref_dt = reference_now or datetime.now(timezone.utc)
-                            due = item.get("due_datetime") or (ref_dt + timedelta(days=7))
-                            pdf_bytes = ws_client.download_drive_pdf_to_memory(item["file_id"])
-                            from backend.app.services.document_analyzer import process_document_and_persist
-                            effort = process_document_and_persist(
-                                pdf_source=pdf_bytes,
-                                course_id=c_id,
-                                course_name=course_info.get("name", "Disciplina"),
-                                task_id=t_id,
-                                task_title=item.get("work_title", "Atividade"),
-                                due_datetime=due,
-                                file_id=item["file_id"],
-                                db_session=db,
-                                gemini_client=gemini_client,
-                            )
-                            if effort.group_required:
-                                await notif.send_group_urgent_alert(
+                            try:
+                                ref_dt = reference_now or datetime.now(timezone.utc)
+                                due = item.get("due_datetime") or (ref_dt + timedelta(days=7))
+                                pdf_bytes = ws_client.download_drive_pdf_to_memory(item["file_id"])
+                                from backend.app.services.document_analyzer import process_document_and_persist
+                                effort = process_document_and_persist(
+                                    pdf_source=pdf_bytes,
+                                    course_id=c_id,
+                                    course_name=course_info.get("name", "Disciplina"),
                                     task_id=t_id,
                                     task_title=item.get("work_title", "Atividade"),
-                                    course_name=course_info.get("name", "Disciplina"),
                                     due_datetime=due,
-                                    reasoning=effort.reasoning_summary,
+                                    file_id=item["file_id"],
+                                    db_session=db,
+                                    gemini_client=gemini_client,
                                 )
+                                if effort.group_required:
+                                    await notif.send_group_urgent_alert(
+                                        task_id=t_id,
+                                        task_title=item.get("work_title", "Atividade"),
+                                        course_name=course_info.get("name", "Disciplina"),
+                                        due_datetime=due,
+                                        reasoning=effort.reasoning_summary,
+                                    )
+                                # Pequena pausa assíncrona para respeitar a taxa de requisições do Gemini
+                                await asyncio.sleep(1.5)
+                            except Exception as item_exc:
+                                logger.warning("Falha ao analisar anexo '%s' da turma %s: %s", item.get("work_title"), c_id, item_exc)
+                                continue
             except Exception as exc:
                 logger.warning("Erro no processamento periódico do Classroom/Gemini: %s", exc)
 
