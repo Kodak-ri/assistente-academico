@@ -28,6 +28,7 @@ class Settings(BaseSettings):
 
     # Credenciais Google / Gemini
     GEMINI_API_KEY: Optional[str] = None
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
     GOOGLE_CREDENTIALS_FILE: Optional[str] = None
     GOOGLE_TOKEN_FILE: Optional[str] = None
 

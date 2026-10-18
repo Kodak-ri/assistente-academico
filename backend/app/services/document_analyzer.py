@@ -138,7 +138,7 @@ def evaluate_task_with_gemini(
 
     from google.genai import types
     response = gemini_client.models.generate_content(
-        model="gemini-2.5-flash",
+        model=settings.GEMINI_MODEL,
         contents=prompt,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
