@@ -214,6 +214,11 @@ class GoogleWorkspaceClient:
 
             if not has_recent_activity:
                 # Classifique a turma como dormente (is_active=False)
+                logger.info(
+                    "Turma %s ('%s') sem eventos ou postagens recentes nos últimos 45 dias: classificada como dormente (is_active=False).",
+                    course_id,
+                    course_name,
+                )
                 if local_record:
                     local_record.is_active = False
                     local_record.last_synced_at = ref_dt

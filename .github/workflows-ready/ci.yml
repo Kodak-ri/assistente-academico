@@ -1,0 +1,35 @@
+name: CI - Assistente Acadêmico (Testes & Tipagem)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  testes-e-qualidade:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout do Repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: Instalar Dependências
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Validação Estrita de Tipagem (Mypy)
+        run: |
+          mypy backend/app
+
+      - name: Execução da Suíte de Testes (Pytest)
+        run: |
+          pytest -v tests/

@@ -65,7 +65,11 @@ async def run_periodic_scan(
                 )
                 for course_info in active_courses:
                     c_id = str(course_info.get("id"))
+                    c_name = course_info.get("name", "Disciplina")
                     pdf_items = ws_client.extract_pdf_attachments(c_id)
+                    if not pdf_items:
+                        logger.info("Turma ativa %s ('%s') sem novos anexos ou eventos com entregas pendentes.", c_id, c_name)
+                        continue
                     for item in pdf_items:
                         t_id = str(item.get("work_id"))
                         existing_task = db.query(Task).filter(Task.id == t_id).first()
