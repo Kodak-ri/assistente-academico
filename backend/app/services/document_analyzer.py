@@ -115,44 +115,14 @@ def evaluate_task_with_gemini(
     document_text: str,
     gemini_client: Any = None,
 ) -> SemanticTaskEvaluation:
-    """Submete o título da tarefa e as 2 primeiras páginas do PDF ao modelo Gemini (gemini-2.5-flash)
-    via SDK google-genai com Structured Outputs.
+    """Avalia o esforço semântico utilizando o Roteador Dual (Local Bazzite GPU -> Fallback Gemini Cloud).
+    
+    1. Tenta primeiro o modelo local no Bazzite (Qwen3.6-Q2) na porta 11434 (custo zero).
+    2. Se Bazzite estiver indisponível ou em modo jogo, faz fallback imediato para Gemini 3.8 Flash.
+    3. Se gemini_client for passado explicitamente (ex: mocks de teste), preserva chamada direta.
     """
-    if gemini_client is None:
-        from google import genai
-        api_key = settings.GEMINI_API_KEY or os.getenv("GEMINI_API_KEY")
-        gemini_client = genai.Client(api_key=api_key)
-
-    prompt = (
-        f"Você é um analisador semântico de esforço académico.\n"
-        f"Analise o título da tarefa e o extrato do documento associado (primeiras 2 páginas).\n"
-        f"Identifique:\n"
-        f"1. lexical_density: complexidade e densidade técnica do texto (fator float entre 1.0 e 2.2).\n"
-        f"2. is_foreign_language: booleano (True se o texto principal for inglês ou outro idioma estrangeiro).\n"
-        f"3. group_required: booleano (True se mencionar explicitamente trabalho em grupo, equipe, dupla ou divisão de seminário).\n"
-        f"4. production_time_min: tempo estimado em minutos para resolver exercícios, escrever código ou produzir relatório (0 se for apenas leitura).\n"
-        f"5. reasoning_summary: breve justificativa da análise.\n\n"
-        f"Título da Tarefa: {task_title}\n\n"
-        f"Extrato do Documento:\n{document_text}\n"
-    )
-
-    from google.genai import types
-    response = gemini_client.models.generate_content(
-        model=settings.GEMINI_MODEL,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=SemanticTaskEvaluation,
-        ),
-    )
-
-    if hasattr(response, "parsed") and isinstance(response.parsed, SemanticTaskEvaluation):
-        return response.parsed
-
-    # Fallback para parsing JSON caso response.text seja fornecido
-    raw_text = response.text if hasattr(response, "text") else str(response)
-    data = json.loads(raw_text)
-    return SemanticTaskEvaluation.model_validate(data)
+    from backend.app.services.llm_router import evaluate_task_dual_router
+    return evaluate_task_dual_router(task_title, document_text, gemini_client=gemini_client)
 
 
 def process_document_and_persist(

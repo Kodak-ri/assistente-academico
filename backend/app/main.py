@@ -10,10 +10,13 @@ from pathlib import Path
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
+
+from mcp.server.transport_security import TransportSecuritySettings
+from backend.app.services.mcp_server import mcp_server
 
 from backend.app.api.endpoints import router as api_router
 from backend.app.core.config import settings
@@ -296,14 +299,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.scheduler = scheduler
     logger.info("APScheduler iniciado com sucesso. Total de jobs: %d", len(scheduler.get_jobs()))
 
-    try:
-        yield
-    finally:
-        logger.info("Encerrando microsserviço e drenando jobs do agendador...")
-        if scheduler.running:
-            scheduler.shutdown(wait=True)
-            await asyncio.sleep(0.01)
-        logger.info("APScheduler finalizado com sucesso.")
+    # Permite reinicializações de ciclo de vida (ex: bateria de testes com múltiplos lifespans)
+    if getattr(mcp_server.session_manager, "_has_started", False):
+        mcp_server.session_manager._has_started = False
+
+    async with mcp_server.session_manager.run():
+        try:
+            yield
+        finally:
+            logger.info("Encerrando microsserviço e drenando jobs do agendador...")
+            if scheduler.running:
+                scheduler.shutdown(wait=True)
+                await asyncio.sleep(0.01)
+            logger.info("APScheduler finalizado com sucesso.")
 
 
 app = FastAPI(
@@ -361,3 +369,16 @@ async def health_check() -> Dict[str, Any]:
         "jobs_count": len(jobs_list),
         "jobs": jobs_list,
     }
+
+
+@app.head("/mcp", summary="MCP Preflight Probe")
+async def mcp_preflight_head() -> Response:
+    """Responde ao preflight de probe do Hermes Agent com Content-Type application/json."""
+    return Response(status_code=200, media_type="application/json")
+
+
+# Incorporação das rotas do aplicativo MCP Streamable HTTP sem conflito com o App Shell PWA
+sec_settings = TransportSecuritySettings(enable_dns_rebinding_protection=False)
+mcp_subapp = mcp_server.streamable_http_app(transport_security=sec_settings)
+app.router.routes.extend(mcp_subapp.routes)
+
