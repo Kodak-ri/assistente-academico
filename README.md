@@ -1,19 +1,19 @@
 # 🎓 Assistente Acadêmico Autônomo & Agendamento Preditivo
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Release-v1.0.0-0a84ff?style=for-the-badge&logo=github" alt="Release v1.0.0" />
+  <img src="https://img.shields.io/badge/Release-v2.0.0-0a84ff?style=for-the-badge&logo=github" alt="Release v2.0.0" />
   <img src="https://img.shields.io/badge/Python-3.13-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.13" />
   <img src="https://img.shields.io/badge/FastAPI-0.115+-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI" />
-  <img src="https://img.shields.io/badge/Gemini%202.5-Flash-4285F4?style=for-the-badge&logo=google&logoColor=white" alt="Gemini 2.5 Flash" />
+  <img src="https://img.shields.io/badge/Dual%20Router-Bazzite%20%7C%20Gemini-34A853?style=for-the-badge&logo=google&logoColor=white" alt="Dual Router" />
+  <img src="https://img.shields.io/badge/FastMCP-2.x%20(/mcp)-purple?style=for-the-badge" alt="FastMCP 2.x" />
   <img src="https://img.shields.io/badge/Google-Calendar%20%26%20Workspace-34A853?style=for-the-badge&logo=google-calendar&logoColor=white" alt="Google Workspace" />
   <img src="https://img.shields.io/badge/PWA-Mobile--First-5A0FC8?style=for-the-badge&logo=pwa&logoColor=white" alt="PWA Standalone" />
-  <img src="https://img.shields.io/badge/Tailwind-CSS%20v3-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white" alt="Tailwind CSS" />
   <img src="https://img.shields.io/badge/Notificações-ntfy.sh-ff6f00?style=for-the-badge" alt="ntfy.sh" />
-  <img src="https://img.shields.io/badge/Pytest-36%2F36%20(100%25)-10b981?style=for-the-badge&logo=pytest&logoColor=white" alt="Pytest 36/36" />
+  <img src="https://img.shields.io/badge/Pytest-41%2F41%20(100%25)-10b981?style=for-the-badge&logo=pytest&logoColor=white" alt="Pytest 41/41" />
   <img src="https://img.shields.io/badge/Mypy-Strict%20(0%20Errors)-blue?style=for-the-badge" alt="Mypy Strict" />
 </p>
 
-Plataforma autônoma headless e interface visual progressiva (PWA) para gestão acadêmica universitária, triagem inteligente de materiais do Google Workspace (Classroom, Drive, Calendar), estimativa cognitiva de esforço com IA (Gemini 2.5 Flash), agendamento preditivo determinístico, notificações interativas via protocolo **ntfy** e painel mobile-first com mutações otimistas.
+Plataforma autônoma headless e interface visual progressiva (PWA) para gestão acadêmica universitária, triagem inteligente de materiais do Google Workspace (Classroom, Drive, Calendar), estimativa cognitiva de esforço com IA via Roteador Dual (PolyStrata RTX 3060 Ti local a custo zero com fallback para Gemini 3.8 Flash), servidor FastMCP 2.x montado em `/mcp` para orquestração pelo **Mercury Agent**, agendamento preditivo determinístico, notificações interativas via protocolo **ntfy** e painel mobile-first com mutações otimistas.
 
 > [!TIP]
 > **Novo por aqui ou quer colocar tudo funcionando sem complicação?**
@@ -25,11 +25,12 @@ Plataforma autônoma headless e interface visual progressiva (PWA) para gestão 
 
 | Especificação | Escopo & Tecnologia | Status | Cobertura de Testes |
 | :--- | :--- | :---: | :---: |
-| **SPEC-001** | Ingestão Tripartida (Google Classroom/Drive), Leitura de PDFs em RAM (`io.BytesIO` com PyMuPDF) e Avaliação Cognitiva via Gemini 2.5 Flash Structured Outputs | **✅ Concluído** | 7 Testes Unitários/Integração |
+| **SPEC-001** | Ingestão Tripartida (Google Classroom/Drive), Leitura de PDFs em RAM (`io.BytesIO` com PyMuPDF) e Avaliação Cognitiva via Roteador Dual (Bazzite/Gemini) | **✅ Concluído** | 7 Testes Unitários/Integração |
 | **SPEC-002** | Motor Determinístico Linear de Agendamento, Fracionamento Cognitivo ($\le 90$ min), Resguardo de 10 min, Margem Antivéspera de 24h e Sincronização Google Calendar | **✅ Concluído** | 7 Testes de Algoritmo/Agenda |
 | **SPEC-003** | Núcleo FastAPI com Gerenciador de Ciclo de Vida (`lifespan`), APScheduler (Varredura 2h + Despacho 07:30 + Crons Domésticos), Mensageria ntfy (Ações Táteis) e Endpoints REST | **✅ Concluído** | 16 Testes de API & Notifier |
 | **SPEC-004 & QA** | Painel Visual Responsivo PWA Mobile-First, Vanilla JavaScript (ES6+), Tailwind CSS, Service Worker, Mutações Otimistas e Teste de Fumaça Ponta a Ponta (E2E) | **✅ Concluído** | 6 Testes de PWA & E2E |
-| **Total Consolidado** | **Pipeline Completo de Ponta a Ponta** | **🏆 v1.0.0** | **36/36 Testes (100% Passed)** |
+| **SPEC-005 & MCP** | Roteador Dual de LLM (PolyStrata RTX 3060 Ti local com fallback para Gemini 3.8 Flash) e Servidor FastMCP 2.x montado em `/mcp` com 6 ferramentas para o Mercury Agent | **✅ Concluído** | 5 Testes de Roteador Dual & MCP |
+| **Total Consolidado** | **Pipeline Completo de Ponta a Ponta & Integração FastMCP Mercury** | **🏆 v2.0.0** | **41/41 Testes (100% Passed)** |
 
 ---
 
@@ -283,7 +284,7 @@ A suíte de testes utiliza banco SQLite em memória isolado (`sqlite:///:memory:
 /root/.venv/bin/mypy backend/app
 ```
 
-### Cobertura da Suíte de Testes (36 Testes Unitários, Regressão e E2E)
+### Cobertura da Suíte de Testes (41 Testes Unitários, Regressão, Dual Router e FastMCP)
 
 #### Ingestão e Análise Semântica (SPEC-001):
 1. `test_schema_table_creation`: Garante a criação de todas as 5 tabelas e colunas no SQLAlchemy 2.0.
@@ -328,4 +329,11 @@ A suíte de testes utiliza banco SQLite em memória isolado (`sqlite:///:memory:
 34. `test_static_files_mount_and_app_js`: Acesso direto aos ativos estáticos montados (`/static/app.js`, `/static/icons/`) e integridade dos handlers JavaScript.
 35. `test_all_precache_and_manifest_assets_exist_no_404`: Verifica que todos os ativos do pre-cache do Service Worker e ícones do Manifesto respondem `200 OK`.
 36. `test_full_e2e_pipeline_smoke`: Teste ponta a ponta simulando ingestão de PDF de 30 páginas, avaliação Gemini, alocação Calendar, dashboard diário e mutações REST.
+
+#### Roteador Dual de LLM e Servidor FastMCP 2.x (SPEC-005):
+37. `test_llm_router_local_success`: Aferição de structured outputs via PolyStrata Bazzite (endpoint OpenAI-compatible local a custo zero).
+38. `test_llm_router_fallback_to_gemini`: Fallback automático e transparente para SDK `google-genai` quando o Bazzite está em timeout/jogo/offline.
+39. `test_mcp_preflight_head`: Validação do preflight e conformidade do protocolo FastMCP Streamable HTTP montado em `/mcp`.
+40. `test_mcp_tools_crud`: Execução determinística das ferramentas MCP de listagem de tarefas Unesp, consulta de jornada diária, snooze e conclusão de tarefas.
+41. `test_mcp_ach_ri_matrix_deterministic`: Execução da Matriz de Análise de Hipóteses Competitivas (ACH) integrada ao motor analítico.
 

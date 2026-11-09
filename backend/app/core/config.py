@@ -32,5 +32,11 @@ class Settings(BaseSettings):
     GOOGLE_CREDENTIALS_FILE: Optional[str] = None
     GOOGLE_TOKEN_FILE: Optional[str] = None
 
+    # Provedor Local (PolyStrata no Bazzite) e Integradores
+    LOCAL_LLM_BASE_URL: str = os.getenv("LOCAL_LLM_BASE_URL", "http://<IP_TAILSCALE_BAZZITE>:11434/v1")
+    LOCAL_LLM_MODEL: str = os.getenv("LOCAL_LLM_MODEL", "hermes-padrao")
+    LOCAL_LLM_TIMEOUT_SEC: float = float(os.getenv("LOCAL_LLM_TIMEOUT_SEC", "8.0"))
+    TCC_BOT_API_URL: str = os.getenv("TCC_BOT_API_URL", "http://tcc-bot:5051")
+
 
 settings = Settings()
